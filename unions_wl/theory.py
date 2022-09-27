@@ -175,7 +175,6 @@ def gamma_t_theo(
     tracer_l = ccl.WeakLensingTracer(                                           
         cosmo,                                                                  
         dndz=dndz_source,                                                       
-        n_samples=n_nz,                                                         
     )                                                                           
                                                                                 
     # Angular cross-power spectrum                                              
