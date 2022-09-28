@@ -91,7 +91,12 @@ def read_dndz(file_path):
     return z_centers, nz, z_edges
 
 
-def get_ngcorr_data(path):
+def get_ngcorr_data(
+    path,
+    theta_min=1,
+    theta_max=100,
+    n_theta=10,
+):
     """Get Corr Data.
 
     Return correlation data from file, computed by treecorr
@@ -100,6 +105,12 @@ def get_ngcorr_data(path):
     ----------
     path : str
         input file path
+    theta_min : int, optional
+        smallest angular scale in arcmin, default is 1
+    theta_max : int, optional
+        largest angular scale in arcmin, default is 100
+    n_theta : int, optional
+        number of angular scales, default is 10
 
     Returns
     -------
@@ -114,10 +125,10 @@ def get_ngcorr_data(path):
     TreeCorrConfig = {
         'ra_units': coord_units,
         'dec_units': coord_units,
-        'min_sep': 1.0,
-        'max_sep': 2.0,
+        'min_sep': theta_min,
+        'max_sep': theta_max,
         'sep_units': sep_units,
-        'nbins': 1,
+        'nbins': n_theta,
     }
 
     ng = treecorr.NGCorrelation(TreeCorrConfig)
