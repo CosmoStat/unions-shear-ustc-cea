@@ -9,6 +9,7 @@ catalogues.
 
 import numpy as np
 from astropy.io import ascii
+from astropy.table import Table
 
 import treecorr
 
@@ -89,6 +90,61 @@ def read_dndz(file_path):
     z_centers = bin_edges2centers(z_edges)
 
     return z_centers, nz, z_edges
+
+
+def write_ascii(out_path, data, names):
+    """Write Ascii.
+
+    Write data to an ascii file.
+
+    Parameters                                                                  
+    ----------                                                                  
+    out_path : str                                                              
+        output file path                                                        
+    data : tupel of arrays
+        data for output
+    names : tupel
+        column names
+
+    """
+    t = Table(data, names=names)                                       
+    with open(out_path, 'w') as f:                                              
+        ascii.write(t, f, delimiter='\t', format='commented_header') 
+
+
+def write_dndz(out_path, dndz):                                                 
+    """Write Dndz.                                                              
+                                                                                
+    Write redshift distribution (histogram) to file.                            
+                                                                                
+    Parameters                                                                  
+    ----------                                                                  
+    out_path : str                                                              
+        output file path                                                        
+    dndz : tupel of arrays                                                      
+        redshift distribution histogram (z, n(z))                               
+                                                                                
+    """                                                                         
+    write_ascii(out_path, dndz, ('z', 'dn_dz'))
+
+
+def write_cls(out_path, ell, cls):                                                 
+    """Write Cls.                                                              
+                                                                                
+    Write angular power spectrum to file.                            
+                                                                                
+    Parameters                                                                  
+    ----------                                                                  
+    out_path : str                                                              
+        output file path                                                        
+    ell : array                                                      
+        2D Fourier modes
+    cls : array
+        angular power spectrum
+                                                                                
+    """                                                                         
+    write_ascii(out_path, (ell, cls), ('ell', 'C_ell'))
+
 
 
 def get_ngcorr_data(

@@ -17,7 +17,6 @@ import pyccl as ccl
 from pyccl.core import Cosmology
 import pyccl.nl_pt as pt
 import pyccl.ccllib as lib
-from bin_sample import bin_edges2centers
 
 
 def pk_gm_theo(
@@ -75,6 +74,7 @@ def pk_gm_theo(
 
 def pk_gm_theo_hod(
     cosmo,
+    log10_Mmin,
     log10k_min=-4,
     log10k_max=2,
     nk_per_decade=20,
@@ -110,9 +110,10 @@ def pk_gm_theo_hod(
         #lM1_0=13.27,
         #lM1_p=-0.323,
     #)
+
     prof_g = ccl.halos.HaloProfileHOD(
         c_of_M,
-        lMmin_0=12.02,
+        lMmin_0=log10_Mmin,
         lMmin_p=0,
         lM0_0=6.6,
         lM0_p=0,
@@ -188,6 +189,8 @@ def gamma_t_theo(
     -------
     array :
         Tangential shear at scales ``theta``
+        ell
+        cls
 
     """
     z_lens = dndz_lens[0]
@@ -203,7 +206,6 @@ def gamma_t_theo(
     if pk_gm_info['model_type'] == 'linear_bias':
         bias_g *= pk_gm_info['bias_1']
 
-    print('MKDEBUG', bias_g[0])
 
     tracer_g = ccl.NumberCountsTracer(
             cosmo,
@@ -232,11 +234,9 @@ def gamma_t_theo(
 
     # to check: bias twice?
     if pk_gm_info['model_type'] == 'linear_bias':
-        print('linear bias')
         pk_gm = pk_gm_theo(cosmo, pk_gm_info['bias_1'])
     elif pk_gm_info['model_type'] == 'HOD':
-        print('HOD')
-        pk_gm = pk_gm_theo_hod(cosmo)
+        pk_gm = pk_gm_theo_hod(cosmo, pk_gm_info['log10_Mmin'])
     else:
         raise ValueError(
             'Invalid power-spectrum model type '
@@ -254,6 +254,9 @@ def gamma_t_theo(
         type='NG',
         method=integr_method,
     )
+
+    return gt, ell, cls_gG
+
 
 def pk_gm_theo_IA(cosmo, bias_1, dndz_lens, a_1_IA = 1.,log10k_min=-4, log10k_max=2, nk_per_decade=20):
     """PK GM THEO IA.
@@ -309,94 +312,6 @@ def pk_gm_theo_IA(cosmo, bias_1, dndz_lens, a_1_IA = 1.,log10k_min=-4, log10k_ma
     return pk_gIA
 
 
-def gamma_t_theo(                                                               
-        theta_deg,                                                              
-        cosmo,                                                                  
-        dndz_lens,                                                              
-        dndz_source,                                                            
-        bias_1,                                                                 
-        ell=None,                                                               
-        p_of_k=None,                                                            
-        integr_method='FFTlog',                                                 
-):                                                                              
-    """GAMMA T THEO.                                                            
-                                                                                
-    Theoretical prediction of the tangential shear of a source                  
-    population around lenses using the ccl library.                             
-                                                                                
-    Parameters                                                                  
-    ----------                                                                  
-    theta_deg : array                                                           
-        Angular scales in degrees                                               
-    cosmo : pyccl.core.Cosmology                                                
-        Cosmological parameters                                                 
-    dndz_lens : tuple of arrays                                                 
-        Lens redshift distribution (z, n(z))                                    
-    dndz_source : tuple of arrays                                               
-        Source redshift distribution (z, n(z))                                  
-    bias_1 : float                                                              
-        linear bias                                                             
-    ell : array, optional                                                       
-        2D Fourier mode, default is                                             
-        np.geomspace(2, 10000, 1000)                                            
-    p_of_k : array_like, optional                                               
-        3D power spectrum on a grid in (k, z). If not given,                    
-        the function ``pk_gm_theo`` is called                                   
-    integr_method : str, optional                                               
-        Method of integration over the Bessel function times                    
-        the angular power spectrum, default is 'FFT_log'                        
-                                                                                
-    Returns                                                                     
-    -------                                                                     
-    array :                                                                     
-        Tangential shear at scales ``theta``                                    
-                                                                                
-    """                                                                         
-    z_lens = dndz_lens[0]                                                       
-                                                                                
-    # 2D tracers 
-
-    # Galaxies (lenses)                                                         
-    bias_g = np.ones_like(z_lens) * bias_1                                      
-    tracer_g = ccl.NumberCountsTracer(                                          
-            cosmo,                                                              
-            False,                                                              
-            dndz=dndz_lens,                                                     
-            bias=(z_lens, bias_g),                                              
-    )                                                                           
-                                                                                
-    # Weak lensing (sources)                                                    
-    n_nz = len(dndz_source[0])                                                  
-    tracer_l = ccl.WeakLensingTracer(                                           
-        cosmo,                                                                  
-        dndz=dndz_source,                                                       
-    )                                                                           
-                                                                                
-    # Angular cross-power spectrum                                              
-    if ell is None:                                                             
-        ell_min = 2                                                             
-        ell_max = 10000                                                         
-        n_ell = 1000                                                            
-        ell = np.geomspace(ell_min, ell_max, num=n_ell)                         
-                                                                                
-    if not p_of_k:                                                              
-        pk_gm = pk_gm_theo(cosmo, bias_1)                                       
-    else:                                                                       
-        pk_gm = p_of_k                                                          
-    cls_gG = ccl.angular_cl(cosmo, tracer_g, tracer_l, ell, p_of_k_a=pk_gm)     
-                                                                                
-    # Tangential shear                                                          
-    gt = ccl.correlation(                                                       
-        cosmo,                                                                  
-        ell,                                                                    
-        cls_gG,                                                                 
-        theta_deg,                                                              
-        type='NG',                                                              
-        method=integr_method,                                                   
-    )                                                                           
-                                                                                
-    return gt
-
 def C_ell_pw(
     dndz_lens,
     rpar_min,
@@ -424,7 +339,7 @@ def C_ell_pw(
     #select from which range in redshift (that will be converted to r_par) 
     #we want to cross correlate lens and source samples
         r_s_1_bin = cosmo_ap_1_bin.comoving_distance(z_lens[i]) + rpar_min*u.Mpc #Mpc #to convert z_l_i to r_li we need to have r_par (connu) = r_s_i (inconnu) - r_l_i (connu) > 0 (= min_rpar used in Romain's code)
-                   z_s_1_bin.append(astropy.cosmology.z_at_value(cosmo_ap_1_bin.comoving_distance, r_s_1_bin)) #to convert r_s_i to z_s_i
+        z_s_1_bin.append(astropy.cosmology.z_at_value(cosmo_ap_1_bin.comoving_distance, r_s_1_bin)) #to convert r_s_i to z_s_i
         if (z_s_1_bin[i] > 2):
             continue
         count += 1
@@ -528,9 +443,9 @@ def gamma_t_theo_pw(
     C_ell_1 = C_ell_pw(dndz_lens, rpar_min, r_transverse, bias_1, source_data_1_bin, sdss_data_cut, cosmo, cosmo_ap) 
     
     theta_brut = r_transverse*u.Mpc/cosmo_ap_1_bin.comoving_distance(z_l_av_1_bin[i])
-        theta_rad = theta_brut*u.radian
-        theta_deg = theta_rad.to("degree")
-        theta_1_bin.append(theta_deg.to_value())
+    theta_rad = theta_brut*u.radian
+    theta_deg = theta_rad.to("degree")
+    theta_1_bin.append(theta_deg.to_value())
     for l in range(len(C_ell_1)):
         g_t_1_bin_1.append(ccl.correlation(cosmo, ell_1_bin_1, C_ell_1[l], theta_1_bin[l], type='NG', method='FFTLog'))
 
