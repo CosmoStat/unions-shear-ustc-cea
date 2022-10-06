@@ -28,6 +28,7 @@ from unions_wl import catalogue as cat
 from sp_validation import util
 from sp_validation import plots
 from sp_validation import cat as sp_cat
+from sp_validation import basic
 
 
 def params_default():
@@ -147,7 +148,7 @@ def main(argv=None):
         params[key] = getattr(options, key)
 
     # Save calling command
-    util.log_command(argv)
+    #util.log_command(argv)
 
     # Open input catalogue
     if params['verbose']:
@@ -193,9 +194,15 @@ def main(argv=None):
 
     # Plot mass histograms
     xs = []
+    means_logM = []
+    stds_logM = []
     n_bin = 100
     for mask in mask_list:
         xs.append(dat[params['key_logM']][mask])
+        mean = np.mean(dat[params['key_logM']][mask])
+        std = np.std(dat[params['key_logM']][mask])
+        means_logM.append(mean)
+        stds_logM.append(std)
     out_name = (
         f'{params["output_dir"]}'
         + f'/hist_{params["key_logM"]}_n_split_{params["n_split"]}_u.pdf'
@@ -210,6 +217,16 @@ def main(argv=None):
         int(n_bin / params['n_split']),
         out_name,
     )
+
+    # Print mean values
+    out_name = (                                                                
+        f'{params["output_dir"]}'                                               
+        + f'/mean_{params["key_logM"]}_n_split_{params["n_split"]}_u.txt'
+    ) 
+    with open(out_name, 'w') as f_out:
+        print(f'# idx mean({params["key_logM"]}) ({params["key_logM"]})', file=f_out)
+        for idx, _ in enumerate(mask_list):
+            print(f'{idx} {means_logM[idx]:.3f} {stds_logM[idx]:.3f}', file=f_out)
 
     # Add columns for weight for each sample
     for idx in range(len(mask_list)):
@@ -263,7 +280,7 @@ def main(argv=None):
     plots.plot_data_1d(
         z_centres_arr,
         z_hist_arr,
-        [],
+        [np.nan] * len(z_centres_arr),
         'AGN SMBH redshift distribution',
         '$z$',
         'frequency',
@@ -337,10 +354,17 @@ def main(argv=None):
     # Plot reweighted mass histogram
     # Prepare input
     xs = []
+    means_logM_w = []
+    stds_logM_w = []
     for idx, mask in enumerate(mask_list):
         dat_mask = dat[mask]
         xs.append(dat_mask[params['key_logM']])
-        ws.append(dat_mask[f'w_{idx}'])
+        w = dat_mask[f'w_{idx}']
+        ws.append(w)
+        mean = np.average(dat[params['key_logM']][mask], weights=w)
+        std = basic.weighted_std(dat[params['key_logM']][mask], w)
+        means_logM_w.append(mean)
+        stds_logM_w.append(std)
 
     # Plot
     out_name = (
@@ -359,6 +383,18 @@ def main(argv=None):
         weights=ws,
         density=True,
     )
+
+    # Print mean values
+    out_name = (                                                                
+        f'{params["output_dir"]}'                                               
+        + f'/mean_{params["key_logM"]}_n_split_{params["n_split"]}_w.txt'
+    ) 
+    with open(out_name, 'w') as f_out:
+        print(f'# idx mean({params["key_logM"]}) std({params["key_logM"]})', file=f_out)
+        for idx, _ in enumerate(mask_list):
+            print(f'{idx} {means_logM_w[idx]:.3f} {stds_logM_w[idx]:.3f}', file=f_out)
+
+
 
     for idx, mask in enumerate(mask_list):
         t = Table(dat[mask])

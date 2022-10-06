@@ -206,6 +206,11 @@ def gamma_t_theo(
     if pk_gm_info['model_type'] == 'linear_bias':
         bias_g *= pk_gm_info['bias_1']
 
+    cosmo.cosmo.gsl_params.INTEGRATION_LIMBER_EPSREL = 1E-4
+    cosmo.cosmo.gsl_params.INTEGRATION_EPSREL = 1E-4
+    cosmo.cosmo.ELL_MIN_CORR = 2
+    cosmo.cosmo.ELL_MIN_CORR = 10_000
+    cosmo.cosmo.N_ELL_CORR = 10_000
 
     tracer_g = ccl.NumberCountsTracer(
             cosmo,
@@ -228,9 +233,10 @@ def gamma_t_theo(
     # Angular cross-power spectrum
     if ell is None:
         ell_min = 2
-        ell_max = 10000
-        n_ell = 1000
+        ell_max = 100_000
+        n_ell = 10_000
         ell = np.geomspace(ell_min, ell_max, num=n_ell)
+        #ell = np.arange(ell_min, ell_max)
 
     # to check: bias twice?
     if pk_gm_info['model_type'] == 'linear_bias':

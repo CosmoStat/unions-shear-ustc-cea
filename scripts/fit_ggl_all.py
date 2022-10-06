@@ -10,6 +10,7 @@ import numpy as np
 from uncertainties import ufloat
 import matplotlib.pyplot as plt
 from astropy.io import fits
+from astropy.io import ascii
 
 from optparse import OptionParser
 
@@ -24,9 +25,6 @@ from sp_validation import util
 from sp_validation import plots
 
 import treecorr
-
-
-# In[ ]:
 
 
 cosmo = ccl.Cosmology(
@@ -51,6 +49,17 @@ dndz_dir = '/home/mkilbing/astro/data/CFIS/v1.0/nz/'
 
 weight = 'w'
 
+# Read mean log_M_BH
+mean_log10_M_BH = {}
+std_log10_M_BH = {}
+for n_split in (1, 2):
+    file_path = f'mean_logM_n_split_{n_split}_{weight}.txt'
+    dat = ascii.read(file_path)
+    mean_log10_M_BH[n_split] = {}
+    std_log10_M_BH[n_split] = {}
+    for idx in range(n_split):
+        mean_log10_M_BH[n_split][idx] = dat['mean(logM)'][idx]
+        std_log10_M_BH[n_split][idx] = dat['std(logM)'][idx]
 
 # In[ ]:
 
@@ -160,6 +169,7 @@ def g_t_model(params, x_data, extra):
         (z_centers['lens'], nz['lens']),
         (z_centers['source'], nz['source']),
         pk_gm_info,
+        integr_method='FFTLog',
     )
 
     return y_model
@@ -212,12 +222,15 @@ model_type = 'hod'
 
 if model_type == 'linear_bias':
     par_name = 'bias_1'
+    par_name_latex = 'b'
 elif model_type == 'hod':
     par_name = 'log10_Mmin'
+    par_name_latex = '\log_{{10}} M_{{\\rm min}} / M_\odot'
 
 g_t = {}
 theta_arr_amin = {}
 par_bf = {}
+std_bf = {}
 
 first = True
 
@@ -225,11 +238,13 @@ for n_split in (1, 2):
     g_t[n_split] = {}
     theta_arr_amin[n_split] = {}
     par_bf[n_split] = {}
+    std_bf[n_split] = {}
 
     for idx in range(n_split):
         g_t[n_split][idx] = {}
         theta_arr_amin[n_split][idx] = {}
         par_bf[n_split][idx] = {}
+        std_bf[n_split][idx] = {}
 
         for sh in ('SP', 'LF'):
             g_t[n_split][idx][sh] = {}
@@ -241,11 +256,12 @@ for n_split in (1, 2):
                 )
             )
             par_bf[n_split][idx][sh] = {}
+            std_bf[n_split][idx][sh] = {}
 
             for blind in ('A', 'B', 'C'):
 
                 #if blind != 'A' or sh != 'SP' or n_split != 2:
-                 #   continue
+                    #continue
 
                 theta_arr_deg = theta_arr_amin[n_split][idx][sh] / 60
 
@@ -290,6 +306,7 @@ for n_split in (1, 2):
                 p_dp = ufloat(value, res.params[par_name].stderr)
 
                 par_bf[n_split][idx][sh][blind] = value
+                std_bf[n_split][idx][sh][blind] = res.params[par_name].stderr
                 print(
                     f'{sh} {blind} {idx+1}/{n_split}'
                     + f' {par_name} = {p_dp:.2ugP}'
@@ -328,6 +345,10 @@ for n_split in (1, 2):
 
             my_fac = 1 / fac
             for idx in range(n_split):
+
+                #if not (blind == 'A' and sh == 'SP' and n_split == 2):
+                    #continue
+
                 x.append(ng[n_split][idx][sh].meanr * my_fac)
                 my_fac *= fac
                 x.append(ng[n_split][idx][sh].meanr * my_fac)
@@ -345,18 +366,15 @@ for n_split in (1, 2):
                     )
                 dy.append([])
 
-                labels.append(fr'$\gamma_{{\rm t}}$ $M_\ast$ bin {idx}')
-                labels.append(fr'$\gamma_\times$ $MM_\ast bin {idx}')
+                labels.append(fr'$\gamma_{{\rm t}}$  ($M_\ast$ bin {idx})')
+                labels.append(fr'$\gamma_\times$ ($M_\ast$ bin {idx})')
                 value = par_bf[n_split][idx][sh][blind]
-                labels.append(f'{par_name}={value:.2f}')
+                labels.append(fr'${par_name_latex}={value:.2f}$')
 
                 ls.append('')
                 ls.append('')
                 ls.append('-')
 
-                #if not (blind == 'A' and sh == 'SP' and n_split == 2):
-                #    pass
-                #continue
                 #else:
                 #    print(idx, ng[n_split][idx][sh].xi)
                 #    print(b, g_t[n_split][idx][sh][blind])
@@ -366,8 +384,8 @@ for n_split in (1, 2):
                     f'{sh}/gtx_n_split_{n_split}'
                     + f'_{blind}_{weight}_{ystr}.pdf'
                 )
-                #plt.axvline(x=theta_min_fit_amin)
-                #plt.axvline(x=theta_max_fit_amin)
+                plt.axvline(x=theta_min_fit_amin, linestyle='--')
+                plt.axvline(x=theta_max_fit_amin, linestyle='--')
                 plots.plot_data_1d(
                     x,
                     y,
@@ -375,7 +393,7 @@ for n_split in (1, 2):
                     title,
                     xlabel,
                     ylabel,
-                    out_path,
+                    out_path=None,
                     xlog=True,
                     ylog=ymode,
                     labels=labels,
@@ -383,10 +401,39 @@ for n_split in (1, 2):
                     colors=colors,
                     eb_linestyles=eb_linestyles,
                 )
+                plt.savefig(out_path)
 
+if model_type == 'hod':
+    for n_split in (1, 2):
+        for sh in ('SP', 'LF'):
+            for blind in ('A', 'B', 'C'):
 
-# In[ ]:
+                #if not (blind == 'A' and sh == 'SP' and n_split == 2):
+                    #continue
 
+                x = []
+                dx = []
+                y = []
+                dy = []
+                for idx in range(n_split):
+                    x.append(mean_log10_M_BH[n_split][idx])
+                    dx.append(std_log10_M_BH[n_split][idx])
+                    y.append(par_bf[n_split][idx][sh][blind])
+                    dy.append(std_bf[n_split][idx][sh][blind])
+                plt.errorbar(
+                    x,
+                    y,
+                    xerr=dx,
+                    yerr=dy,
+                    marker='o',
+                    linestyle='',
+                )
 
+                plt.title(f'{sh} {blind} {weight}')
+                plt.xlabel(r'$\log_{10} M_{\ast} / M_\odot$')
+                plt.ylabel(r'$\log_{10} M_{\rm min} / M_\odot$')
+                plt.ylim(10.8, 12.4)
+                plt.tight_layout()
+                plt.savefig(f'{sh}/logM_BH_log_Mmin_{blind}_{weight}.png')
 
 
