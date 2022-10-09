@@ -23,11 +23,12 @@ from statsmodels.distributions.empirical_distribution import ECDF
 from astropy.io import fits, ascii
 from astropy.table import Table
 
-from unions_wl import catalogue as cat
+from unions_wl import catalogue as wl_cat
 
 from cs_util import logging
 from cs_util import calc
 from cs_util import plots
+from cs_util import cat as cs_cat
 
 
 def params_default():
@@ -178,7 +179,7 @@ def main(argv=None):
     cdf = ECDF(dat[params['key_logM']])
 
     # Split into two (check whether we get median from before)
-    logM_bounds = cat.y_equi(cdf, params['n_split'])
+    logM_bounds = wl_cat.y_equi(cdf, params['n_split'])
 
     # Add min and max to boundaries
     logM_bounds.insert(0, min(dat[params['key_logM']]))
@@ -372,7 +373,9 @@ def main(argv=None):
         xs.append(dat_mask[params['key_logM']])
         w = dat_mask[f'w_{idx}']
         ws.append(w)
-        mean, std = calc.weighted_std(dat[params['key_logM']][mask], w)
+        mean, std = calc.weighted_avg_and_std(
+            dat[params['key_logM']][mask], w
+        )
         means_logM_w.append(mean)
         stds_logM_w.append(std)
 
@@ -417,7 +420,7 @@ def main(argv=None):
         cols = []
         for key in t.keys():
             cols.append(fits.Column(name=key, array=t[key], format='E'))
-        cat.write_fits_BinTable_file(cols, out_name)
+        cs_cat.write_fits_BinTable_file(cols, out_name)
 
     return 0
 
