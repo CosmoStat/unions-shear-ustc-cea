@@ -26,8 +26,7 @@
 
 ## Requirements
 
-The python packages `treecorr`, `àstropy`, `statsmodel` need to be installed.
-In addition, the library `sp_validation` is used.
+The python packages `treecorr`, `àstropy`, `statsmodel` and `cs_util` need to be installed.
 
 ## AGN galaxy-galaxy lensing
 

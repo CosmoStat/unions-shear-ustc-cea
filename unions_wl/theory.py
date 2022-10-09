@@ -209,7 +209,7 @@ def gamma_t_theo(
     cosmo.cosmo.gsl_params.INTEGRATION_LIMBER_EPSREL = 1E-4
     cosmo.cosmo.gsl_params.INTEGRATION_EPSREL = 1E-4
     cosmo.cosmo.ELL_MIN_CORR = 2
-    cosmo.cosmo.ELL_MIN_CORR = 10_000
+    cosmo.cosmo.ELL_MAX_CORR = 10_000
     cosmo.cosmo.N_ELL_CORR = 10_000
 
     tracer_g = ccl.NumberCountsTracer(

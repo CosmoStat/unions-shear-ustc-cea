@@ -17,12 +17,10 @@ from optparse import OptionParser
 import pyccl as ccl
 from lmfit import minimize, Parameters, fit_report
 
-import lenspack
 from unions_wl import theory
 from unions_wl import catalogue as cat
 
-from sp_validation import util
-from sp_validation import plots
+from cs_util import plots
 
 import treecorr
 
@@ -403,6 +401,16 @@ for n_split in (1, 2):
                 )
                 plt.savefig(out_path)
 
+colors = {
+    'SP': 'r',
+    'LF': 'b',
+}
+markers = {
+    'A': 'o',
+    'B': 'd',
+    'C': 's',
+}
+
 if model_type == 'hod':
     for n_split in (1, 2):
         for sh in ('SP', 'LF'):
@@ -420,6 +428,7 @@ if model_type == 'hod':
                     dx.append(std_log10_M_BH[n_split][idx])
                     y.append(par_bf[n_split][idx][sh][blind])
                     dy.append(std_bf[n_split][idx][sh][blind])
+                plt.figure(figsize=(10, 10))
                 plt.errorbar(
                     x,
                     y,
@@ -434,6 +443,49 @@ if model_type == 'hod':
                 plt.ylabel(r'$\log_{10} M_{\rm min} / M_\odot$')
                 plt.ylim(10.8, 12.4)
                 plt.tight_layout()
-                plt.savefig(f'{sh}/logM_BH_log_Mmin_{blind}_{weight}.png')
+                plt.savefig(f'{sh}/logM_BH_log_Mmin_n_split_{n_split}_{blind}_{weight}.png')
+
+    for n_split in (1, 2):
+
+        fx = 1.03
+        ifx = -2
+        plt.figure(figsize=(10, 10))
+        for sh in ('SP', 'LF'):
+            for blind in ('A', 'B', 'C'):
+
+                #if not (blind == 'A' and sh == 'SP' and n_split == 2):
+                    #continue
+
+                x = []
+                dx = []
+                y = []
+                dy = []
+                for idx in range(n_split):
+                    x.append(mean_log10_M_BH[n_split][idx] * fx ** float(ifx))
+                    print(x)
+                    dx.append(std_log10_M_BH[n_split][idx])
+                    y.append(par_bf[n_split][idx][sh][blind])
+                    dy.append(std_bf[n_split][idx][sh][blind])
+                plt.errorbar(
+                    x,
+                    y,
+                    xerr=dx,
+                    yerr=dy,
+                    linestyle='',
+                    color=colors[sh],
+                    marker=markers[blind],
+                    #label=f'{sh} {blind}',
+                )
+
+        ifx += 1
+
+        plt.title(f'{weight}')
+        plt.xlabel(r'$\log_{10} M_{\ast} / M_\odot$')
+        plt.ylabel(r'$\log_{10} M_{\rm min} / M_\odot$')
+        plt.ylim(10.6, 12.4)
+        #plt.legend()
+        plt.tight_layout()
+        plt.savefig(f'logM_BH_log_Mmin_n_split_{n_split}_{weight}.png')
+
 
 

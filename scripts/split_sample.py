@@ -25,10 +25,9 @@ from astropy.table import Table
 
 from unions_wl import catalogue as cat
 
-from sp_validation import util
-from sp_validation import plots
-from sp_validation import cat as sp_cat
-from sp_validation import basic
+from cs_util import logging
+from cs_util import calc
+from cs_util import plots
 
 
 def params_default():
@@ -53,6 +52,7 @@ def params_default():
         'key_dec': 'dec',
         'key_z': 'z',
         'key_logM': 'logM',
+        'logM_min': None,
         'n_split': 2,
         'n_bin_z_hist': 100,
         'output_dir': '.',
@@ -61,6 +61,7 @@ def params_default():
 
     # Parameters which are not the default, which is ``str``
     types = {
+        'logM_min': 'float',
         'n_split': 'int',
         'n_bin_z_hist': 'int',
     }
@@ -68,6 +69,7 @@ def params_default():
     # Parameters which can be specified as command line option
     help_strings = {
         'input_path': 'catalogue input path, default={}',
+        'logM_min': 'minumum mass (log), default no minimum',
         'n_split': 'number of equi-populated bins on output, default={}',
         'n_bin_z_hist': 'number of bins for redshift histogram, default={}',
         'output_dir': 'output directory, default={}',
@@ -148,7 +150,7 @@ def main(argv=None):
         params[key] = getattr(options, key)
 
     # Save calling command
-    #util.log_command(argv)
+    logging.log_command(argv)
 
     # Open input catalogue
     if params['verbose']:
@@ -164,6 +166,15 @@ def main(argv=None):
     # To split into more equi-populated bins, compute cumulative distribution function
     if params['verbose']:
         print(f'Computing cdf({params["key_logM"]})...')
+    if params['logM_min']:
+        if params['verbose']:
+            print('Using minumum logM = {params["logM_min"]}')
+        n_all = len(dat)
+        w = dat[params['key_logM']] > params["logM_min"]
+        dat = dat[w]
+        n_cut = len(dat)
+        if params['verbose']:
+            print(f'Removed {n_all - n_cut}/{n_all} objects below minimum mass')
     cdf = ECDF(dat[params['key_logM']])
 
     # Split into two (check whether we get median from before)
@@ -361,8 +372,7 @@ def main(argv=None):
         xs.append(dat_mask[params['key_logM']])
         w = dat_mask[f'w_{idx}']
         ws.append(w)
-        mean = np.average(dat[params['key_logM']][mask], weights=w)
-        std = basic.weighted_std(dat[params['key_logM']][mask], w)
+        mean, std = calc.weighted_std(dat[params['key_logM']][mask], w)
         means_logM_w.append(mean)
         stds_logM_w.append(std)
 
@@ -407,7 +417,7 @@ def main(argv=None):
         cols = []
         for key in t.keys():
             cols.append(fits.Column(name=key, array=t[key], format='E'))
-        sp_cat.write_fits_BinTable_file(cols, out_name)
+        cat.write_fits_BinTable_file(cols, out_name)
 
     return 0
 

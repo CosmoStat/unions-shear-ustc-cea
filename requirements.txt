@@ -1,8 +1,9 @@
-importlib_metadata==3.1.1
 astropy
-fitsio
+#cs_util
+importlib_metadata==3.1.1
+lmfit
 numpy
-statsmodels
 matplotlib
-pyccl
+statsmodels
 treecorr
+uncertainties
