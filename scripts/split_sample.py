@@ -48,7 +48,7 @@ def params_default():
     """
     # Specify all parameter names and default values
     params = {
-        'input_path': 'SDSS_SMBH_202206.txt',
+        'input_path': 'SDSS_SMBH_202206.fits',
         'key_ra': 'ra',
         'key_dec': 'dec',
         'key_z': 'z',
@@ -162,7 +162,11 @@ def main(argv=None):
         params['key_z'],
         params['key_logM'],
     ]
-    dat = ascii.read(f'{params["input_path"]}', names=names)
+    #dat = ascii.read(f'{params["input_path"]}', names=names)
+    dat_fits = fits.getdata(params["input_path"])
+    dat = {}
+    for key in dat_fits.dtype.names:
+        dat[key] = dat_fits[key]
 
     # To split into more equi-populated bins, compute cumulative distribution function
     if params['verbose']:
@@ -247,8 +251,8 @@ def main(argv=None):
     # Assign weights according to local density in redshift histogram.
 
     fac = 1.0001
-    z_min = min(dat['z']) / fac
-    z_max = max(dat['z']) * fac
+    z_min = min(dat[params['key_z']]) / fac
+    z_max = max(dat[params['key_z']]) * fac
 
     z_centres_arr = []
     z_hist_arr = []
@@ -256,7 +260,7 @@ def main(argv=None):
     for idx, mask in enumerate(mask_list):
 
         z_hist, z_edges = np.histogram(
-            dat['z'][mask],
+            dat[params['key_z']][mask],
             bins=int(params['n_bin_z_hist'] / params['n_split']),
             density=True,
             range=(z_min, z_max),
@@ -272,9 +276,9 @@ def main(argv=None):
         # Plot histogram
         plt.step(z_centres, z_hist, where='mid', label=idx)
 
-        weights = np.ones_like(dat['z'][mask])
+        weights = np.ones_like(dat[params['key_z']][mask])
 
-        for idz, z in enumerate(dat['z'][mask]):
+        for idz, z in enumerate(dat[params['key_z']][mask]):
             w = np.where(z > z_edges)[0]
             if len(w) == 0:
                 print('Error:', z)
@@ -321,8 +325,10 @@ def main(argv=None):
     # Prepare input
     xs = []
     ws = []
+    dat_mask = {}
     for idx, mask in enumerate(mask_list):
-        dat_mask = dat[mask]
+        for key in dat:
+            dat_mask[key] = dat[key][mask]
         xs.append(dat_mask[params['key_z']])
         ws.append(dat_mask[f'w_{idx}'])
 
@@ -368,8 +374,10 @@ def main(argv=None):
     xs = []
     means_logM_w = []
     stds_logM_w = []
+    dat_mask = {}
     for idx, mask in enumerate(mask_list):
-        dat_mask = dat[mask]
+        for key in dat:
+            dat_mask[key] = dat[key][mask]
         xs.append(dat_mask[params['key_logM']])
         w = dat_mask[f'w_{idx}']
         ws.append(w)
@@ -409,8 +417,11 @@ def main(argv=None):
 
 
 
+    dat_mask = {}
     for idx, mask in enumerate(mask_list):
-        t = Table(dat[mask])
+        for key in dat:
+            dat_mask[key] = dat[key][mask]
+        t = Table(dat_mask)
         out_name = (
             f'{params["output_dir"]}/{params["output_fname_base"]}'
             + f'_{idx}_n_split_{params["n_split"]}.fits'

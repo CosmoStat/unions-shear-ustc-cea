@@ -1,9 +1,10 @@
 astropy
-#cs_util
+cs_util
 importlib_metadata==3.1.1
 lmfit
 numpy
 matplotlib
+mkstuff
 statsmodels
 treecorr
 uncertainties

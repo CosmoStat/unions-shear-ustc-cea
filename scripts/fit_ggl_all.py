@@ -24,6 +24,8 @@ from cs_util import plots
 
 import treecorr
 
+plt.rcParams['font.size'] = 18
+
 
 cosmo = ccl.Cosmology(
         Omega_c=0.27,
@@ -230,8 +232,6 @@ theta_arr_amin = {}
 par_bf = {}
 std_bf = {}
 
-first = True
-
 for n_split in (1, 2):
     g_t[n_split] = {}
     theta_arr_amin[n_split] = {}
@@ -293,12 +293,6 @@ for n_split in (1, 2):
                     params,
                     args=(theta_deg, gt, dgt, extra)
                 )
-
-                if first:
-                    print('all scales [deg] = ', theta_deg)
-                    print('scales for fitting [arcmin] =', x[w])
-                    first = False
-
 
                 value = res.params[par_name].value
                 p_dp = ufloat(value, res.params[par_name].stderr)
@@ -399,7 +393,7 @@ for n_split in (1, 2):
                     colors=colors,
                     eb_linestyles=eb_linestyles,
                 )
-                plt.savefig(out_path)
+                plots.savefig(out_path)
 
 colors = {
     'SP': 'r',
@@ -443,11 +437,11 @@ if model_type == 'hod':
                 plt.ylabel(r'$\log_{10} M_{\rm min} / M_\odot$')
                 plt.ylim(10.8, 12.4)
                 plt.tight_layout()
-                plt.savefig(f'{sh}/logM_BH_log_Mmin_n_split_{n_split}_{blind}_{weight}.png')
+                plots.savefig(f'{sh}/logM_BH_log_Mmin_n_split_{n_split}_{blind}_{weight}.png')
 
     for n_split in (1, 2):
 
-        fx = 1.03
+        fx = 1.01
         ifx = -2
         plt.figure(figsize=(10, 10))
         for sh in ('SP', 'LF'):
@@ -462,7 +456,7 @@ if model_type == 'hod':
                 dy = []
                 for idx in range(n_split):
                     x.append(mean_log10_M_BH[n_split][idx] * fx ** float(ifx))
-                    print(x)
+                    print(x, fx, ifx)
                     dx.append(std_log10_M_BH[n_split][idx])
                     y.append(par_bf[n_split][idx][sh][blind])
                     dy.append(std_bf[n_split][idx][sh][blind])
@@ -477,7 +471,7 @@ if model_type == 'hod':
                     #label=f'{sh} {blind}',
                 )
 
-        ifx += 1
+                ifx += 1
 
         plt.title(f'{weight}')
         plt.xlabel(r'$\log_{10} M_{\ast} / M_\odot$')
@@ -485,7 +479,7 @@ if model_type == 'hod':
         plt.ylim(10.6, 12.4)
         #plt.legend()
         plt.tight_layout()
-        plt.savefig(f'logM_BH_log_Mmin_n_split_{n_split}_{weight}.png')
+        plots.savefig(f'logM_BH_log_Mmin_n_split_{n_split}_{weight}.png')
 
 
 
