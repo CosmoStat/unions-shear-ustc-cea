@@ -20,7 +20,6 @@ import matplotlib.pylab as plt
 
 from statsmodels.distributions.empirical_distribution import ECDF
 
-from astropy.io import fits, ascii
 from astropy.table import Table
 
 from unions_wl import catalogue as wl_cat
@@ -70,10 +69,15 @@ def params_default():
     # Parameters which can be specified as command line option
     help_strings = {
         'input_path': 'catalogue input path, default={}',
+        'key_ra': 'right ascension column name, default={}',
+        'key_dec': 'declination column name, default={}',
+        'key_z': 'redshift column name, default={}',
+        'key_logM': 'mass (in log) column name, default={}',
         'logM_min': 'minumum mass (log), default no minimum',
         'n_split': 'number of equi-populated bins on output, default={}',
         'n_bin_z_hist': 'number of bins for redshift histogram, default={}',
         'output_dir': 'output directory, default={}',
+        'output_fname_base': 'output file base name, default={}',
     }
 
     # Options which have one-letter shortcuts
@@ -153,22 +157,16 @@ def main(argv=None):
     # Save calling command
     logging.log_command(argv)
 
-    # Open input catalogue
+    # Open input catalogue and read into dictionary
     if params['verbose']:
         print(f'Reading catalogue {params["input_path"]}...')
-    names = [
-        params['key_ra'],
-        params['key_dec'],
-        params['key_z'],
-        params['key_logM'],
-    ]
-    #dat = ascii.read(f'{params["input_path"]}', names=names)
     dat_fits = fits.getdata(params["input_path"])
     dat = {}
     for key in dat_fits.dtype.names:
         dat[key] = dat_fits[key]
 
-    # To split into more equi-populated bins, compute cumulative distribution function
+    # To split into more equi-populated bins, compute cumulative
+    # distribution function
     if params['verbose']:
         print(f'Computing cdf({params["key_logM"]})...')
     if params['logM_min']:
@@ -179,7 +177,9 @@ def main(argv=None):
         dat = dat[w]
         n_cut = len(dat)
         if params['verbose']:
-            print(f'Removed {n_all - n_cut}/{n_all} objects below minimum mass')
+            print(
+                f'Removed {n_all - n_cut}/{n_all} objects below minimum mass'
+            )
     cdf = ECDF(dat[params['key_logM']])
 
     # Split into two (check whether we get median from before)
@@ -240,9 +240,15 @@ def main(argv=None):
         + f'/mean_{params["key_logM"]}_n_split_{params["n_split"]}_u.txt'
     ) 
     with open(out_name, 'w') as f_out:
-        print(f'# idx mean({params["key_logM"]}) ({params["key_logM"]})', file=f_out)
+        print(
+            f'# idx mean({params["key_logM"]}) ({params["key_logM"]})',
+            file=f_out,
+        )
         for idx, _ in enumerate(mask_list):
-            print(f'{idx} {means_logM[idx]:.3f} {stds_logM[idx]:.3f}', file=f_out)
+            print(
+                f'{idx} {means_logM[idx]:.3f} {stds_logM[idx]:.3f}',
+                file=f_out,
+            )
 
     # Add columns for weight for each sample
     for idx in range(len(mask_list)):
@@ -411,10 +417,15 @@ def main(argv=None):
         + f'/mean_{params["key_logM"]}_n_split_{params["n_split"]}_w.txt'
     ) 
     with open(out_name, 'w') as f_out:
-        print(f'# idx mean({params["key_logM"]}) std({params["key_logM"]})', file=f_out)
+        print(
+            f'# idx mean({params["key_logM"]}) std({params["key_logM"]})',
+            file=f_out,
+        )
         for idx, _ in enumerate(mask_list):
-            print(f'{idx} {means_logM_w[idx]:.3f} {stds_logM_w[idx]:.3f}', file=f_out)
-
+            print(
+                f'{idx} {means_logM_w[idx]:.3f} {stds_logM_w[idx]:.3f}',
+                file=f_out,
+            )
 
 
     dat_mask = {}
