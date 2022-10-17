@@ -20,14 +20,14 @@ import matplotlib.pylab as plt
 
 from statsmodels.distributions.empirical_distribution import ECDF
 
-from astropy.io import fits, ascii
 from astropy.table import Table
 
-from unions_wl import catalogue as cat
+from unions_wl import catalogue as wl_cat
 
-from sp_validation import util
-from sp_validation import plots
-from sp_validation import cat as sp_cat
+from cs_util import logging
+from cs_util import calc
+from cs_util import plots
+from cs_util import cat as cs_cat
 
 
 def params_default():
@@ -47,11 +47,12 @@ def params_default():
     """
     # Specify all parameter names and default values
     params = {
-        'input_path': 'SDSS_SMBH_202206.txt',
+        'input_path': 'SDSS_SMBH_202206.fits',
         'key_ra': 'ra',
         'key_dec': 'dec',
         'key_z': 'z',
         'key_logM': 'logM',
+        'logM_min': None,
         'n_split': 2,
         'n_bin_z_hist': 100,
         'output_dir': '.',
@@ -60,6 +61,7 @@ def params_default():
 
     # Parameters which are not the default, which is ``str``
     types = {
+        'logM_min': 'float',
         'n_split': 'int',
         'n_bin_z_hist': 'int',
     }
@@ -67,9 +69,15 @@ def params_default():
     # Parameters which can be specified as command line option
     help_strings = {
         'input_path': 'catalogue input path, default={}',
+        'key_ra': 'right ascension column name, default={}',
+        'key_dec': 'declination column name, default={}',
+        'key_z': 'redshift column name, default={}',
+        'key_logM': 'mass (in log) column name, default={}',
+        'logM_min': 'minumum mass (log), default no minimum',
         'n_split': 'number of equi-populated bins on output, default={}',
         'n_bin_z_hist': 'number of bins for redshift histogram, default={}',
         'output_dir': 'output directory, default={}',
+        'output_fname_base': 'output file base name, default={}',
     }
 
     # Options which have one-letter shortcuts
@@ -147,26 +155,35 @@ def main(argv=None):
         params[key] = getattr(options, key)
 
     # Save calling command
-    util.log_command(argv)
+    logging.log_command(argv)
 
-    # Open input catalogue
+    # Open input catalogue and read into dictionary
     if params['verbose']:
         print(f'Reading catalogue {params["input_path"]}...')
-    names = [
-        params['key_ra'],
-        params['key_dec'],
-        params['key_z'],
-        params['key_logM'],
-    ]
-    dat = ascii.read(f'{params["input_path"]}', names=names)
+    dat_fits = fits.getdata(params["input_path"])
+    dat = {}
+    for key in dat_fits.dtype.names:
+        dat[key] = dat_fits[key]
 
-    # To split into more equi-populated bins, compute cumulative distribution function
+    # To split into more equi-populated bins, compute cumulative
+    # distribution function
     if params['verbose']:
         print(f'Computing cdf({params["key_logM"]})...')
+    if params['logM_min']:
+        if params['verbose']:
+            print('Using minumum logM = {params["logM_min"]}')
+        n_all = len(dat)
+        w = dat[params['key_logM']] > params["logM_min"]
+        dat = dat[w]
+        n_cut = len(dat)
+        if params['verbose']:
+            print(
+                f'Removed {n_all - n_cut}/{n_all} objects below minimum mass'
+            )
     cdf = ECDF(dat[params['key_logM']])
 
     # Split into two (check whether we get median from before)
-    logM_bounds = cat.y_equi(cdf, params['n_split'])
+    logM_bounds = wl_cat.y_equi(cdf, params['n_split'])
 
     # Add min and max to boundaries
     logM_bounds.insert(0, min(dat[params['key_logM']]))
@@ -193,9 +210,15 @@ def main(argv=None):
 
     # Plot mass histograms
     xs = []
+    means_logM = []
+    stds_logM = []
     n_bin = 100
     for mask in mask_list:
         xs.append(dat[params['key_logM']][mask])
+        mean = np.mean(dat[params['key_logM']][mask])
+        std = np.std(dat[params['key_logM']][mask])
+        means_logM.append(mean)
+        stds_logM.append(std)
     out_name = (
         f'{params["output_dir"]}'
         + f'/hist_{params["key_logM"]}_n_split_{params["n_split"]}_u.pdf'
@@ -211,6 +234,22 @@ def main(argv=None):
         out_name,
     )
 
+    # Print mean values
+    out_name = (                                                                
+        f'{params["output_dir"]}'                                               
+        + f'/mean_{params["key_logM"]}_n_split_{params["n_split"]}_u.txt'
+    ) 
+    with open(out_name, 'w') as f_out:
+        print(
+            f'# idx mean({params["key_logM"]}) ({params["key_logM"]})',
+            file=f_out,
+        )
+        for idx, _ in enumerate(mask_list):
+            print(
+                f'{idx} {means_logM[idx]:.3f} {stds_logM[idx]:.3f}',
+                file=f_out,
+            )
+
     # Add columns for weight for each sample
     for idx in range(len(mask_list)):
             dat[f'w_{idx}'] = np.ones_like(dat[params['key_z']])
@@ -218,8 +257,8 @@ def main(argv=None):
     # Assign weights according to local density in redshift histogram.
 
     fac = 1.0001
-    z_min = min(dat['z']) / fac
-    z_max = max(dat['z']) * fac
+    z_min = min(dat[params['key_z']]) / fac
+    z_max = max(dat[params['key_z']]) * fac
 
     z_centres_arr = []
     z_hist_arr = []
@@ -227,7 +266,7 @@ def main(argv=None):
     for idx, mask in enumerate(mask_list):
 
         z_hist, z_edges = np.histogram(
-            dat['z'][mask],
+            dat[params['key_z']][mask],
             bins=int(params['n_bin_z_hist'] / params['n_split']),
             density=True,
             range=(z_min, z_max),
@@ -243,9 +282,9 @@ def main(argv=None):
         # Plot histogram
         plt.step(z_centres, z_hist, where='mid', label=idx)
 
-        weights = np.ones_like(dat['z'][mask])
+        weights = np.ones_like(dat[params['key_z']][mask])
 
-        for idz, z in enumerate(dat['z'][mask]):
+        for idz, z in enumerate(dat[params['key_z']][mask]):
             w = np.where(z > z_edges)[0]
             if len(w) == 0:
                 print('Error:', z)
@@ -263,7 +302,7 @@ def main(argv=None):
     plots.plot_data_1d(
         z_centres_arr,
         z_hist_arr,
-        [],
+        [np.nan] * len(z_centres_arr),
         'AGN SMBH redshift distribution',
         '$z$',
         'frequency',
@@ -292,8 +331,10 @@ def main(argv=None):
     # Prepare input
     xs = []
     ws = []
+    dat_mask = {}
     for idx, mask in enumerate(mask_list):
-        dat_mask = dat[mask]
+        for key in dat:
+            dat_mask[key] = dat[key][mask]
         xs.append(dat_mask[params['key_z']])
         ws.append(dat_mask[f'w_{idx}'])
 
@@ -337,10 +378,20 @@ def main(argv=None):
     # Plot reweighted mass histogram
     # Prepare input
     xs = []
+    means_logM_w = []
+    stds_logM_w = []
+    dat_mask = {}
     for idx, mask in enumerate(mask_list):
-        dat_mask = dat[mask]
+        for key in dat:
+            dat_mask[key] = dat[key][mask]
         xs.append(dat_mask[params['key_logM']])
-        ws.append(dat_mask[f'w_{idx}'])
+        w = dat_mask[f'w_{idx}']
+        ws.append(w)
+        mean, std = calc.weighted_avg_and_std(
+            dat[params['key_logM']][mask], w
+        )
+        means_logM_w.append(mean)
+        stds_logM_w.append(std)
 
     # Plot
     out_name = (
@@ -360,8 +411,28 @@ def main(argv=None):
         density=True,
     )
 
+    # Print mean values
+    out_name = (                                                                
+        f'{params["output_dir"]}'                                               
+        + f'/mean_{params["key_logM"]}_n_split_{params["n_split"]}_w.txt'
+    ) 
+    with open(out_name, 'w') as f_out:
+        print(
+            f'# idx mean({params["key_logM"]}) std({params["key_logM"]})',
+            file=f_out,
+        )
+        for idx, _ in enumerate(mask_list):
+            print(
+                f'{idx} {means_logM_w[idx]:.3f} {stds_logM_w[idx]:.3f}',
+                file=f_out,
+            )
+
+
+    dat_mask = {}
     for idx, mask in enumerate(mask_list):
-        t = Table(dat[mask])
+        for key in dat:
+            dat_mask[key] = dat[key][mask]
+        t = Table(dat_mask)
         out_name = (
             f'{params["output_dir"]}/{params["output_fname_base"]}'
             + f'_{idx}_n_split_{params["n_split"]}.fits'
@@ -371,7 +442,7 @@ def main(argv=None):
         cols = []
         for key in t.keys():
             cols.append(fits.Column(name=key, array=t[key], format='E'))
-        sp_cat.write_fits_BinTable_file(cols, out_name)
+        cs_cat.write_fits_BinTable_file(cols, out_name)
 
     return 0
 

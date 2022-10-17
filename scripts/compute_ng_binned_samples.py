@@ -17,8 +17,7 @@ from astropy.io import fits
 
 import treecorr
 
-from sp_validation import util                                                  
-
+from cs_util import logging
 
 def params_default():
     """PARAMS DEFAULT
@@ -159,7 +158,7 @@ def main(argv=None):
         params[key] = getattr(options, key)
 
     # Save calling command
-    util.log_command(argv)
+    logging.log_command(argv)
 
     # Open input catalogues
     data = {}
