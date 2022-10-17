@@ -172,7 +172,25 @@ def main(argv=None):
     # Open input mask
     if params['verbose']:
         print(f'Reading mask {params["input_mask"]}...')
-    mask, header= hp.read_map(params['input_mask'], h=True)
+    nest = False
+    mask, header= hp.read_map(
+        params['input_mask'],
+        h=True,
+        nest=nest,
+        partial=True
+    )
+    for (key, value) in header:
+        if key == 'ORDERING':
+            if value == 'RING':
+                if nest:
+                    raise ValueError(
+                        'input mask has ORDENING=RING, set nest to False'
+                    )
+            elif value == 'NEST':
+                if not nest:
+                    raise ValueError(
+                        'input mask has ORDENING=NEST, set nest to True'
+                    )
 
     # Get nside from header
     nside = None
@@ -182,63 +200,72 @@ def main(argv=None):
     if not nside:
         raise KeyError('NSIDE not found in FITS mask header')
 
-    # Transform (ra, dec) to standard coordinates (theta, phi)
-    theta = np.pi / 2 - np.deg2rad(dec)
-    phi = 2 * np.pi - np.deg2rad(ra)
-
     # Get mask pixel numbers of coordinates
-    ipix = hp.ang2pix(nside, theta, phi)
+    ipix = hp.ang2pix(nside, ra, dec, nest=nest, lonlat=True)
 
-    # Get object index list in footprint (where mask is 1)
-    idx_in_footprint = (mask[ipix] == 1)
-    #idx_in_footprint = []
-    #for idx, idx_pix in enumerate(ipix):
-        #if mask[idx_pix] > 0:
-            #idx_in_footprint.append(idx)
+    ## Get pixels in footprint, where mask is 1
+    in_footprint = (mask[ipix] == 1)
+
+    # Get numbers of pixels in footprint 
+    ipix_in_footprint = ipix[in_footprint]
+
+    # Get indices of coordinates in footprint
+    idx_np = np.where(in_footprint)[0]
 
     if params['verbose']:
-        n_in_footprint = len(np.where(idx_in_footprint)[0])
+        n_in_footprint = len(idx_np)
         print(
             f'{n_in_footprint}/{len(ra)} ='
             + f' {n_in_footprint/len(ra):.2%} objects in footprint'
         )
 
-    dat_in_footprint = dat[idx_in_footprint]
+    # Restrict data to footprint
+    dat_in_footprint = dat[idx_np]
+
+    # Coordinates need to be rotated to celestial system
+    rot = hp.rotator.Rotator(coord=['G','C'])
+    ra_r, dec_r = rot(
+        dat_in_footprint['RA'],
+        dat_in_footprint['dec'],
+        lonlat=True
+    )
+
+    # Write data in footprint to disk
     t = Table(dat_in_footprint)
     if params['verbose']:
         print(f'Writing objects in footprint to {params["output_path"]}')
-
-    plt.figure()
-    plt.plot(dat_in_footprint['RA'], dat_in_footprint['dec'], '.')
-    plt.savefig('radec.png')
-    plt.close()
-
     cols = []
     for key in t.keys():
         cols.append(fits.Column(name=key, array=t[key], format='E'))
     cs_cat.write_fits_BinTable_file(cols, params["output_path"])
 
-    # Create plot
+    # Create plots
     if params['plot']:
         out_path_plot = f'{params["input_base"]}.png'
+
+        # Coordinates in footprint with mask
         point_size = 0.02
         if params['verbose']:
             print(f'Creating plot {out_path_plot}...')
 
-        ra_center_deg = 115
+        ra_center_deg = 151
         hp.mollview(mask, coord='GC', rot=(ra_center_deg, 0, 0))                      
-        #hp.projscatter(theta, phi, coord='C', s=point_size/2, color='r')
         hp.projscatter(
-            theta[idx_in_footprint],
-            phi[idx_in_footprint],
+            ra_r,
+            dec_r,
             s=point_size,
             color='g',
-            coord='G',
+            coord='C',
+            lonlat=True,
         )
-
         plt.savefig(out_path_plot)                                    
         plt.close() 
 
+        # For testing plot coordinates in footprint
+        plt.figure()
+        plt.plot(ra_r, dec_r, '.')
+        plt.savefig('radec_in_footprint.png')
+        plt.close()
 
     return 0
 
