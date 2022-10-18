@@ -57,6 +57,7 @@ def params_default():
         'z_min': None,
         'z_max': None,
         'n_split': 2,
+        'idx_ref': None,
         'n_bin_z_hist': 100,
         'output_dir': '.',
         'output_fname_base': 'SDSS_SMBH_202206',
@@ -68,6 +69,7 @@ def params_default():
         'z_min': 'float',
         'z_max': 'float',
         'n_split': 'int',
+        'idx_ref': 'int',
         'n_bin_z_hist': 'int',
     }
 
@@ -78,10 +80,14 @@ def params_default():
         'key_dec': 'declination column name, default={}',
         'key_z': 'redshift column name, default={}',
         'key_logM': 'mass (in log) column name, default={}',
-        'logM_min': 'minumum mass (log), default no minimum',
-        'z_min': 'minumum redshift, default no minimum',
-        'z_max': 'maximum redshift, default no maximum',
+        'logM_min': 'minumum mass (log), default none',
+        'z_min': 'minumum redshift, default none',
+        'z_max': 'maximum redshift, default none',
         'n_split': 'number of equi-populated bins on output, default={}',
+        'idx_ref': (
+            'bin index for reference redshift histogram, default none'
+            + ' (flat weighted histograms)'
+        ),
         'n_bin_z_hist': 'number of bins for redshift histogram, default={}',
         'output_dir': 'output directory, default={}',
         'output_fname_base': 'output file base name, default={}',
@@ -335,6 +341,9 @@ def main(argv=None):
             else:
                 idh = w[-1]
             weights[idz] = 1 / z_hist[idh]
+
+            if params['idx_ref'] is not None:
+                weights[idz] *= z_hist_arr[params['idx_ref']][idh]
 
         dat[f'w_{idx}'][mask] = weights
 
