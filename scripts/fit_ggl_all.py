@@ -456,7 +456,6 @@ if model_type == 'hod':
                 dy = []
                 for idx in range(n_split):
                     x.append(mean_log10_M_BH[n_split][idx] * fx ** float(ifx))
-                    print(x, fx, ifx)
                     dx.append(std_log10_M_BH[n_split][idx])
                     y.append(par_bf[n_split][idx][sh][blind])
                     dy.append(std_bf[n_split][idx][sh][blind])
