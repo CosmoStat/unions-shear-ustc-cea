@@ -243,7 +243,7 @@ def main(argv=None):
     mask_list = []
     labels = []
     for idx in range(len(logM_bounds) - 1):
-        label = f'{logM_bounds[idx]:.1g} <= logM < {logM_bounds[idx + 1]:g}'
+        label = f'{logM_bounds[idx]:g} <= logM < {logM_bounds[idx + 1]:g}'
         labels.append(label)
         if params['verbose']:
             print(
