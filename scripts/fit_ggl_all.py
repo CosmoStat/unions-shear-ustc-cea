@@ -474,7 +474,7 @@ if model_type == 'hod':
         plt.xlabel(r'$\log_{10} M_{\ast} / M_\odot$')
         plt.ylabel(r'$\log_{10} M_{\rm min} / M_\odot$')
         plt.ylim(10.6, 12.4)
-        #plt.legend()
+        plt.legend(loc='best')
         plt.tight_layout()
         plots.savefig(f'logM_BH_log_Mmin_n_split_{n_split}_{weight}.png')
 
