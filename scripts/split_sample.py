@@ -21,6 +21,7 @@ import matplotlib.pylab as plt
 from statsmodels.distributions.empirical_distribution import ECDF
 
 from astropy.table import Table
+from astropy.io import fits
 
 from unions_wl import catalogue as wl_cat
 
@@ -53,7 +54,10 @@ def params_default():
         'key_z': 'z',
         'key_logM': 'logM',
         'logM_min': None,
+        'z_min': None,
+        'z_max': None,
         'n_split': 2,
+        'idx_ref': None,
         'n_bin_z_hist': 100,
         'output_dir': '.',
         'output_fname_base': 'SDSS_SMBH_202206',
@@ -62,7 +66,10 @@ def params_default():
     # Parameters which are not the default, which is ``str``
     types = {
         'logM_min': 'float',
+        'z_min': 'float',
+        'z_max': 'float',
         'n_split': 'int',
+        'idx_ref': 'int',
         'n_bin_z_hist': 'int',
     }
 
@@ -73,8 +80,14 @@ def params_default():
         'key_dec': 'declination column name, default={}',
         'key_z': 'redshift column name, default={}',
         'key_logM': 'mass (in log) column name, default={}',
-        'logM_min': 'minumum mass (log), default no minimum',
+        'logM_min': 'minumum mass (log), default none',
+        'z_min': 'minumum redshift, default none',
+        'z_max': 'maximum redshift, default none',
         'n_split': 'number of equi-populated bins on output, default={}',
+        'idx_ref': (
+            'bin index for reference redshift histogram, default none'
+            + ' (flat weighted histograms)'
+        ),
         'n_bin_z_hist': 'number of bins for redshift histogram, default={}',
         'output_dir': 'output directory, default={}',
         'output_fname_base': 'output file base name, default={}',
@@ -157,6 +170,8 @@ def main(argv=None):
     # Save calling command
     logging.log_command(argv)
 
+    plt.rcParams['font.size'] = 18
+
     # Open input catalogue and read into dictionary
     if params['verbose']:
         print(f'Reading catalogue {params["input_path"]}...')
@@ -164,22 +179,57 @@ def main(argv=None):
     dat = {}
     for key in dat_fits.dtype.names:
         dat[key] = dat_fits[key]
+    #dat = dat_fits
 
     # To split into more equi-populated bins, compute cumulative
     # distribution function
     if params['verbose']:
         print(f'Computing cdf({params["key_logM"]})...')
+
+    # Cut in mass if required
     if params['logM_min']:
         if params['verbose']:
-            print('Using minumum logM = {params["logM_min"]}')
+            print(f'Using minumum logM = {params["logM_min"]}')
         n_all = len(dat)
-        w = dat[params['key_logM']] > params["logM_min"]
-        dat = dat[w]
+        w = dat[params['key_logM']] > params['logM_min']
+        for key in dat:
+            dat[key] = dat[key][w]
         n_cut = len(dat)
         if params['verbose']:
             print(
                 f'Removed {n_all - n_cut}/{n_all} objects below minimum mass'
             )
+
+    # Cut in redshift if required
+    if params['z_min']:
+        if params['verbose']:
+            print(f'Using minumum z = {params["z_min"]}')
+        n_all = len(dat)
+        w = dat[params['key_z']] > params['z_min']
+        for key in dat:
+            dat[key] = dat[key][w]
+        n_cut = len(dat)
+        if params['verbose']:
+            print(
+                f'Removed {n_all - n_cut}/{n_all} objects below'
+                + ' minimum redshift'
+            )
+
+    if params['z_max']:
+        if params['verbose']:
+            print(f'Using maximum z = {params["z_max"]}')
+        n_all = len(dat)
+        w = dat[params['key_z']] < params['z_max']
+        for key in dat:
+            dat[key] = dat[key][w]
+        n_cut = len(dat)
+        if params['verbose']:
+            print(
+                f'Removed {n_all - n_cut}/{n_all} objects above'
+                + ' maximum redshift'
+            )
+
+    # Get cumulative distribution function in log-mass
     cdf = ECDF(dat[params['key_logM']])
 
     # Split into two (check whether we get median from before)
@@ -193,7 +243,7 @@ def main(argv=None):
     mask_list = []
     labels = []
     for idx in range(len(logM_bounds) - 1):
-        label = f'{logM_bounds[idx]} <= logM < {logM_bounds[idx + 1]}'
+        label = f'{logM_bounds[idx]:g} <= logM < {logM_bounds[idx + 1]:g}'
         labels.append(label)
         if params['verbose']:
             print(
@@ -252,7 +302,7 @@ def main(argv=None):
 
     # Add columns for weight for each sample
     for idx in range(len(mask_list)):
-            dat[f'w_{idx}'] = np.ones_like(dat[params['key_z']])
+        dat[f'w_{idx}'] = np.ones_like(dat[params['key_z']])
 
     # Assign weights according to local density in redshift histogram.
 
@@ -291,6 +341,9 @@ def main(argv=None):
             else:
                 idh = w[-1]
             weights[idz] = 1 / z_hist[idh]
+
+            if params['idx_ref'] is not None:
+                weights[idz] *= z_hist_arr[params['idx_ref']][idh]
 
         dat[f'w_{idx}'][mask] = weights
 

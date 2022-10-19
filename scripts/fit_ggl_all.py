@@ -38,21 +38,16 @@ cosmo = ccl.Cosmology(
 sep_units = 'arcmin'
 
 
-# In[ ]:
-
-
 dndz_dir = '/home/mkilbing/astro/data/CFIS/v1.0/nz/'
 
-
-# In[ ]:
-
-
 weight = 'w'
+
+n_split_arr = (1, 2, 3)
 
 # Read mean log_M_BH
 mean_log10_M_BH = {}
 std_log10_M_BH = {}
-for n_split in (1, 2):
+for n_split in n_split_arr:
     file_path = f'mean_logM_n_split_{n_split}_{weight}.txt'
     dat = ascii.read(file_path)
     mean_log10_M_BH[n_split] = {}
@@ -78,7 +73,7 @@ for sample in ('source', 'lens'):
 # fg redshift distribution
 sample = 'lens'
 
-for n_split in (1, 2):
+for n_split in n_split_arr:
     z_centers[sample][n_split] = {}
     nz[sample][n_split] = {}
     for idx in range(n_split):
@@ -111,7 +106,7 @@ for sh in ('SP', 'LF'):
 # correlation data
 ng = {}
 
-for n_split in (1, 2):
+for n_split in n_split_arr:
     ng[n_split] = {}
     for idx in range(n_split):
         ng[n_split][idx] = {}
@@ -232,7 +227,7 @@ theta_arr_amin = {}
 par_bf = {}
 std_bf = {}
 
-for n_split in (1, 2):
+for n_split in n_split_arr:
     g_t[n_split] = {}
     theta_arr_amin[n_split] = {}
     par_bf[n_split] = {}
@@ -320,11 +315,10 @@ fac = 1.05
 xlabel = rf'$\theta$ [{sep_units}]'
 ylabel = r'$\gamma_{\rm t}(\theta)$'
 labels = [r'$\gamma_{\rm t}$', r'$\gamma_\times$', 'model']
-#colors = ['g', 'r', 'g', 'b', 'orange', 'b']
-colors = ['g', 'g', 'g', 'b', 'b', 'b']
-eb_linestyles = ['-', ':', '', '-', ':', '']
+colors = ['g', 'g', 'g', 'b', 'b', 'b', 'r', 'r', 'r']
+eb_linestyles = ['-', ':', '', '-', ':', '', '-', ':', '']
 
-for n_split in (1, 2):
+for n_split in n_split_arr:
     for sh in ('SP', 'LF'):
         for blind in ('A', 'B', 'C'):
 
@@ -406,7 +400,7 @@ markers = {
 }
 
 if model_type == 'hod':
-    for n_split in (1, 2):
+    for n_split in n_split_arr:
         for sh in ('SP', 'LF'):
             for blind in ('A', 'B', 'C'):
 
@@ -439,9 +433,9 @@ if model_type == 'hod':
                 plt.tight_layout()
                 plots.savefig(f'{sh}/logM_BH_log_Mmin_n_split_{n_split}_{blind}_{weight}.png')
 
-    for n_split in (1, 2):
+    for n_split in n_split_arr:
 
-        fx = 1.01
+        fx = 1.003
         ifx = -2
         plt.figure(figsize=(10, 10))
         for sh in ('SP', 'LF'):
@@ -456,10 +450,13 @@ if model_type == 'hod':
                 dy = []
                 for idx in range(n_split):
                     x.append(mean_log10_M_BH[n_split][idx] * fx ** float(ifx))
-                    print(x, fx, ifx)
                     dx.append(std_log10_M_BH[n_split][idx])
                     y.append(par_bf[n_split][idx][sh][blind])
                     dy.append(std_bf[n_split][idx][sh][blind])
+                if blind == 'A':
+                    label = sh
+                else:
+                    label = ''
                 plt.errorbar(
                     x,
                     y,
@@ -468,7 +465,7 @@ if model_type == 'hod':
                     linestyle='',
                     color=colors[sh],
                     marker=markers[blind],
-                    #label=f'{sh} {blind}',
+                    label=label,
                 )
 
                 ifx += 1
@@ -477,7 +474,7 @@ if model_type == 'hod':
         plt.xlabel(r'$\log_{10} M_{\ast} / M_\odot$')
         plt.ylabel(r'$\log_{10} M_{\rm min} / M_\odot$')
         plt.ylim(10.6, 12.4)
-        #plt.legend()
+        plt.legend(loc='best')
         plt.tight_layout()
         plots.savefig(f'logM_BH_log_Mmin_n_split_{n_split}_{weight}.png')
 

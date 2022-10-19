@@ -197,8 +197,6 @@ def main(argv=None):
             w[sample] = data[sample][params[f'key_w_{sample}']]
             if params['verbose']:
                 print(f'Using catalogs weights for {sample} sample')
-    for sample in ['fg', 'bg']:
-        print(sample, w[sample][:5])
 
     # Create treecorr catalogue
     for sample in ('fg', 'bg'):

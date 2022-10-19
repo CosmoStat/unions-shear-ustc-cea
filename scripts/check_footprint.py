@@ -177,7 +177,6 @@ def main(argv=None):
         params['input_mask'],
         h=True,
         nest=nest,
-        partial=True
     )
     for (key, value) in header:
         if key == 'ORDERING':
@@ -200,8 +199,12 @@ def main(argv=None):
     if not nside:
         raise KeyError('NSIDE not found in FITS mask header')
 
+    rot = hp.rotator.Rotator(coord=['G','C'])
+    ra_r, dec_r = rot(ra, dec, lonlat=True)
+
     # Get mask pixel numbers of coordinates
-    ipix = hp.ang2pix(nside, ra, dec, nest=nest, lonlat=True)
+    #ipix = hp.ang2pix(nside, ra, dec, nest=nest, lonlat=True)
+    ipix = hp.ang2pix(nside, ra_r, dec_r, nest=nest, lonlat=True)
 
     ## Get pixels in footprint, where mask is 1
     in_footprint = (mask[ipix] == 1)
@@ -223,12 +226,14 @@ def main(argv=None):
     dat_in_footprint = dat[idx_np]
 
     # Coordinates need to be rotated to celestial system
-    rot = hp.rotator.Rotator(coord=['G','C'])
+    rot = hp.rotator.Rotator(coord=['C','G'])
     ra_r, dec_r = rot(
         dat_in_footprint['RA'],
         dat_in_footprint['dec'],
         lonlat=True
     )
+    dat_in_footprint['RA'] = ra_r
+    dat_in_footprint['dec'] = dec_r
 
     # Write data in footprint to disk
     t = Table(dat_in_footprint)
