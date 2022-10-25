@@ -207,10 +207,6 @@ def gamma_t_theo(
     if pk_gm_info['model_type'] == 'linear_bias':
         bias_g *= pk_gm_info['bias_1']
 
-    cosmo.cosmo.ELL_MIN_CORR = 2
-    cosmo.cosmo.ELL_MAX_CORR = 10_000
-    cosmo.cosmo.N_ELL_CORR = 10_000
-
     tracer_g = ccl.NumberCountsTracer(
             cosmo,
             False,
@@ -231,11 +227,9 @@ def gamma_t_theo(
 
     # Angular cross-power spectrum
     if ell is None:
-        ell_min = cosmo.cosmo.ELL_MIN_CORR
-        ell_max = cosmo.cosmo.ELL_MAX_CORR
-        n_ell = cosmo.cosmo.N_ELL_CORR
-        ell = np.geomspace(ell_min, ell_max, num=n_ell)
-        #ell = np.arange(ell_min, ell_max)
+        ell_min = 2
+        ell_max =  100_000
+        ell = np.arange(ell_min, ell_max)
 
     # to check: bias twice?
     if pk_gm_info['model_type'] == 'linear_bias':
@@ -248,7 +242,7 @@ def gamma_t_theo(
             + pk_gm_info['model_type']
         )
 
-    cls_gG = ccl.angular_cl(cosmo, tracer_g, tracer_l, ell, p_of_k_a=pk_gm)
+    cls_gG = ccl.angular_cl(cosmo, tracer_g, tracer_l, ell, p_of_k_a=pk_gm, limber_integration_method='qag_quad')
 
     # Tangential shear
     gt = ccl.correlation(
