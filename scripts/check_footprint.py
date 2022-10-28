@@ -47,7 +47,7 @@ def params_default():
 
     """
     # Specify all parameter names and default values
-    input_base = 'SDSS_SMBH_202206'
+    input_base = 'agn'
     params = {
         'input_cat': f'{input_base}.fits',
         'key_ra': 'ra',

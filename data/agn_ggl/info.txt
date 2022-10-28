@@ -1,0 +1,12 @@
+AGN catalogues
+==============
+Name: 		SDSS_SMBH_202206.txt
+Columns: 	RA Dec z logM
+Reference: 	Liu et al. (2019)
+
+Name: 		SDSS_SMBH_202210.txt
+		(renamed from Merge_all)
+Columns: 	RA Dec z logM err_logM
+Reference: 	Shen et al. (2022) and Liu et al. (2019)
+Comments:	Combines both Shen and Liu catalogues.
+		For the Liu objects, err_logM is set to 0.
