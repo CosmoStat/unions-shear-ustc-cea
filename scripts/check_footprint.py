@@ -199,8 +199,10 @@ def main(argv=None):
     if not nside:
         raise KeyError('NSIDE not found in FITS mask header')
 
-    rot = hp.rotator.Rotator(coord=['G','C'])
-    ra_r, dec_r = rot(ra, dec, lonlat=True)
+    #rot = hp.rotator.Rotator() #coord=['G','C'])
+    #.ra_r, dec_r = rot(ra, dec, lonlat=True)
+    ra_r = ra
+    dec_r = dec
 
     # Get mask pixel numbers of coordinates
     #ipix = hp.ang2pix(nside, ra, dec, nest=nest, lonlat=True)
@@ -226,12 +228,14 @@ def main(argv=None):
     dat_in_footprint = dat[idx_np]
 
     # Coordinates need to be rotated to celestial system
-    rot = hp.rotator.Rotator(coord=['C','G'])
-    ra_r, dec_r = rot(
-        dat_in_footprint['RA'],
-        dat_in_footprint['dec'],
-        lonlat=True
-    )
+    #rot = hp.rotator.Rotator() #coord=['C','G'])
+    #ra_r, dec_r = rot(
+        #dat_in_footprint['RA'],
+        #dat_in_footprint['dec'],
+        #lonlat=True
+    #)
+    ra_r = dat_in_footprint['RA']
+    dec_r = dat_in_footprint['dec']
     dat_in_footprint['RA'] = ra_r
     dat_in_footprint['dec'] = dec_r
 
@@ -254,7 +258,8 @@ def main(argv=None):
             print(f'Creating plot {out_path_plot}...')
 
         ra_center_deg = 151
-        hp.mollview(mask, coord='GC', rot=(ra_center_deg, 0, 0))                      
+        #hp.mollview(mask, coord='GC', rot=(ra_center_deg, 0, 0))                      
+        hp.mollview(mask, rot=(ra_center_deg, 0, 0))                      
         hp.projscatter(
             ra_r,
             dec_r,
@@ -263,12 +268,19 @@ def main(argv=None):
             coord='C',
             lonlat=True,
         )
+            #coord='C',
         plt.savefig(out_path_plot)                                    
         plt.close() 
 
         # For testing plot coordinates in footprint
-        plt.figure()
-        plt.plot(ra_r, dec_r, '.')
+        fig, (ax) = plt.subplots(1, 1)
+        w_pos = ra_r > 0
+        ax.plot(ra_r[w_pos], dec_r[w_pos], '.')
+        w_neg = ra_r < 0
+        ax.plot(ra_r[w_neg]+360, dec_r[w_neg], '.')
+        ax.invert_xaxis()
+        ax.set_xlabel('R.A. [deg]')
+        ax.set_xlabel('Dec [deg]')
         plt.savefig('radec_in_footprint.png')
         plt.close()
 
