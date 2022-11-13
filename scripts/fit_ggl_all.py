@@ -100,8 +100,6 @@ for sh in ('SP', 'LF'):
         )
 
 
-# In[ ]:
-
 
 # correlation data
 ng = {}
@@ -117,7 +115,56 @@ for n_split in n_split_arr:
             ng[n_split][idx][sh] = cat.get_ngcorr_data(ng_path)
 
 
-# In[ ]:
+# Plot data only
+fac = 1.05
+pow_idx = 0.8
+xlabel = rf'$\theta$ [{sep_units}]'
+ylabel = rf'$\theta^{pow_idx} \gamma_{\rm t}(\theta)$'
+colors = {
+    'SP': 'r',
+    'LF': 'b',
+}
+eb_linestyles = ['-', ':', '-.']
+for n_split in n_split_arr:
+    x = []
+    y = []
+    dy = []
+    labels = []
+    ls = []
+    eb_ls = []
+    col = []
+    title = f'{n_split} {weight}'
+    my_fac = 1 / fac
+    for sh in ('SP', 'LF'):
+        for idx in range(n_split):
+            this_x = ng[n_split][idx][sh].meanr
+            x.append(this_x * my_fac)
+            my_fac *= fac
+            y.append(ng[n_split][idx][sh].xi * this_x ** pow_idx)
+            dy.append(np.sqrt(ng[n_split][idx][sh].varxi) * this_x ** pow_idx)
+            labels.append(f'{sh} {idx}')
+            ls.append('')
+            eb_ls.append(eb_linestyles[idx])
+            col.append(colors[sh])
+
+    out_path = f'gamma_t_n_split_{n_split}_log.pdf'
+    plots.plot_data_1d(                                             
+        x,                                                          
+        y,                                                          
+        dy,                                                         
+        title,                                                      
+        xlabel,                                                     
+        ylabel,                                                     
+        out_path=out_path,                                              
+        xlog=True,                                                  
+        ylog=True,                                                 
+        labels=labels,
+        colors=col,
+        linestyles=ls,
+        eb_linestyles=eb_ls,
+    )
+
+
 
 
 def g_t_model(params, x_data, extra):
@@ -200,8 +247,6 @@ def loss(params, x_data, y_data, err, extra):
 
     return residuals
 
-
-# In[ ]:
 
 
 # THeoretical prediction for plot and bias fit
@@ -313,7 +358,7 @@ for n_split in n_split_arr:
 
 fac = 1.05
 xlabel = rf'$\theta$ [{sep_units}]'
-ylabel = r'$\gamma_{\rm t}(\theta)$'
+ylabel = r'$\gamma_{\rm t, \times}(\theta)$'
 labels = [r'$\gamma_{\rm t}$', r'$\gamma_\times$', 'model']
 colors = ['g', 'g', 'g', 'b', 'b', 'b', 'r', 'r', 'r']
 eb_linestyles = ['-', ':', '', '-', ':', '', '-', ':', '']
