@@ -48,7 +48,7 @@ def params_default():
     """
     # Specify all parameter names and default values
     params = {
-        'input_path': 'SDSS_SMBH_202206.fits',
+        'input_path': 'agn.fits',
         'key_ra': 'ra',
         'key_dec': 'dec',
         'key_z': 'z',
@@ -60,7 +60,7 @@ def params_default():
         'idx_ref': None,
         'n_bin_z_hist': 100,
         'output_dir': '.',
-        'output_fname_base': 'SDSS_SMBH_202206',
+        'output_fname_base': 'agn',
     }
 
     # Parameters which are not the default, which is ``str``
@@ -201,7 +201,7 @@ def main(argv=None):
             )
 
     # Cut in redshift if required
-    if params['z_min']:
+    if params['z_min'] is not None:
         if params['verbose']:
             print(f'Using minumum z = {params["z_min"]}')
         n_all = len(dat)

@@ -42,7 +42,7 @@ dndz_dir = '/home/mkilbing/astro/data/CFIS/v1.0/nz/'
 
 weight = 'w'
 
-n_split_arr = (1, 2, 3)
+n_split_arr = (1, 2)
 
 # Read mean log_M_BH
 mean_log10_M_BH = {}
@@ -415,6 +415,7 @@ for n_split in n_split_arr:
                     f'{sh}/gtx_n_split_{n_split}'
                     + f'_{blind}_{weight}_{ystr}.pdf'
                 )
+                plots.figure(figsize=(15, 10))
                 plt.axvline(x=theta_min_fit_amin, linestyle='--')
                 plt.axvline(x=theta_max_fit_amin, linestyle='--')
                 plots.plot_data_1d(
