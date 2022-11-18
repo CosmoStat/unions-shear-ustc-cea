@@ -54,12 +54,14 @@ def params_default():
         'key_dec': 'dec',
         'input_mask': 'mask.fits',
         'output_path': f'{input_base}_in_footprint.fits',
+        'good' : 1,
         'plot': False,
     }
 
     # Parameters which are not the default, which is ``str``
     types = {
         'plot' : 'bool',
+        'good' : 'int',
     }
 
     # Parameters which can be specified as command line option
@@ -70,6 +72,7 @@ def params_default():
         'input_mask': 'mask input path, default={}',
         'output_path': 'output path of catalogue in footprint, default={}',
         'plot': 'create plot',
+        'good': 'value of observed (good) pixels, default={}',
     }
 
     # Options which have one-letter shortcuts
@@ -78,6 +81,7 @@ def params_default():
         'input_mask': '-m',
         'output_dir': '-o',
         'plot': '-p',
+        'good': '-g',
     }
 
     params['input_base'] = input_base
@@ -203,7 +207,7 @@ def main(argv=None):
     ipix = hp.ang2pix(nside, ra, dec, nest=nest, lonlat=True)
 
     ## Get pixels in footprint, where mask is 1
-    in_footprint = (mask[ipix] == 1)
+    in_footprint = (mask[ipix] == params['good'])
 
     # Get numbers of pixels in footprint 
     ipix_in_footprint = ipix[in_footprint]

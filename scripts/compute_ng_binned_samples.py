@@ -51,7 +51,9 @@ def params_default():
         'theta_min': 0.1,
         'theta_max': 200,
         'n_theta': 10,
+        'physical' : False,
         'out_path' : './ggl_unions_sdss_matched.txt',
+        'n_cpu': 1,
         'verbose': True,
     }
 
@@ -59,6 +61,8 @@ def params_default():
     types = {
         'sign_e1': 'int',
         'sign_e2': 'int',
+        'physical': 'bool',
+        'n_cpu': 'int',
     }
 
     # Parameters which can be specified as command line option
@@ -78,7 +82,9 @@ def params_default():
         'theta_min': 'minimum angular scale, default={}',
         'theta_max': 'maximum angular scale, default={}',
         'n_theta': 'number of angular scales, default={}',
+        'physical' : '2D coordinates are physical [Mpc] if True, default={}',
         'out_path' : 'output path, default={}',
+        'n_cpu' : 'number of CPUs for parallel processing, default={}',
     }
 
     # Options which have one-letter shortcuts
@@ -120,14 +126,24 @@ def parse_options(p_def, short_options, types, help_strings):
             else:
                 typ = 'string'
 
-            parser.add_option(
-                short,
-                f'--{key}',
-                dest=key,
-                type=typ,
-                default=p_def[key],
-                help=help_strings[key].format(p_def[key]),
-            )
+            if typ == 'bool':
+                parser.add_option(
+                    f'{short}',
+                    f'--{key}',
+                    dest=key,
+                    default=False,
+                    action='store_true',
+                    help=help_strings[key].format(p_def[key]),
+                )
+            else:
+                parser.add_option(
+                    short,
+                    f'--{key}',
+                    dest=key,
+                    type=typ,
+                    default=p_def[key],
+                    help=help_strings[key].format(p_def[key]),
+                )
 
     parser.add_option(
         '-v',
@@ -140,6 +156,84 @@ def parse_options(p_def, short_options, types, help_strings):
     options, args = parser.parse_args()
 
     return options
+
+
+def create_treecorr_catalogs(
+    positions,
+    sample,
+    key_ra,
+    key_dec,
+    g1,
+    g2,
+    w,
+    coord_units,
+    split,
+):
+    """Create Treecorr Catalogs.
+
+    Return treecorr catalog(s).
+
+    Parameters
+    ----------
+    positions : dict
+        input positions
+    sample : str
+        sample string
+    key_ra : str
+        data key for right ascension
+    key_dec : str
+        data key for declination
+    g1 : dict
+        first shear component
+    g2 : dict
+        second shear component
+    w : dict
+        weight
+    coord_units : str
+        coordinate unit string
+    split : bool
+        if True split foreground sample into individual objects
+
+    Returns
+    -------
+    list
+        treecorr Cataloge objects
+
+    """
+    cat = []
+    if not split:
+        my_cat = treecorr.Catalog(
+            ra=positions[sample][key_ra],
+            dec=positions[sample][key_dec],
+            g1=g1[sample],
+            g2=g2[sample],
+            w=w[sample],
+            ra_units=coord_units,
+            dec_units=coord_units,
+        )
+        cat = [my_cat]
+    else:
+        n_obj = len(positions[sample][key_ra])
+        for idx in range(n_obj):
+            if not g1[sample]:
+                my_g1 = None
+                my_g2 = None
+            else:
+                my_g1 = g1[sample][idx:idx+1]
+                my_g2 = g2[sample][idx:idx+1]
+
+            my_cat = treecorr.Catalog(
+                ra=positions[sample][key_ra][idx:idx+1],
+                dec=positions[sample][key_dec][idx:idx+1],
+                g1=my_g1,
+                g2=my_g2,
+                w=w[sample][idx:idx+1],
+                ra_units=coord_units,
+                dec_units=coord_units,
+            )
+            cat.append(my_cat)
+
+    return cat
 
 
 def main(argv=None):
@@ -170,7 +264,7 @@ def main(argv=None):
 
     # Set treecorr catalogues
     coord_units = 'degrees'
-    cat = {}
+    cats = {}
     if params['verbose']:
         print(
             'Signs for ellipticity components ='
@@ -178,6 +272,7 @@ def main(argv=None):
         )
 
     # Set fg and bg sample data columns
+    # Shear components g1, g2: Set `None` for foreground
     g1 = {
         'fg': None,
         'bg': data[sample][params['key_e1']] * params['sign_e1']
@@ -189,6 +284,8 @@ def main(argv=None):
     w = {}
     for sample in ['fg', 'bg']:
         n = len(data[sample][params[f'key_ra_{sample}']])
+
+        # Set weight
         if params[f'key_w_{sample}'] is None:
             w[sample] = [1] * n
             if params['verbose']:
@@ -196,18 +293,26 @@ def main(argv=None):
         else:
             w[sample] = data[sample][params[f'key_w_{sample}']]
             if params['verbose']:
-                print(f'Using catalogs weights for {sample} sample')
+                print(f'Using catalog weights for {sample} sample')
 
-    # Create treecorr catalogue
+    # Create treecorr catalogues
     for sample in ('fg', 'bg'):
-        cat[sample] = treecorr.Catalog(
-            ra=data[sample][params[f'key_ra_{sample}']],
-            dec=data[sample][params[f'key_dec_{sample}']],
-            g1=g1[sample],
-            g2=g2[sample],
-            w=w[sample],
-            ra_units=coord_units,
-            dec_units=coord_units,
+
+        # Split cat into single objects if fg and physical
+        if sample == 'fg' and params['physical']:
+            split = True
+        else:
+            split = False
+        cats[sample] = create_treecorr_catalogs(
+            data,
+            sample,
+            params[f'key_ra_{sample}'],
+            params[f'key_dec_{sample}'],
+            g1,
+            g2,
+            w,
+            coord_units,
+            split,
         )
 
     # Set treecorr config info for correlation
@@ -219,13 +324,21 @@ def main(argv=None):
         'max_sep': params['theta_max'],
         'sep_units': sep_units,
         'nbins': params['n_theta'],
+        'num_threads': params['n_cpu'],
     }
     ng = treecorr.NGCorrelation(TreeCorrConfig)
 
     # Compute correlation
+    n_fg = len(cats['fg'])
     if params['verbose']:
-        print('Correlating...')
-    ng.process(cat['fg'], cat['bg'])
+        print(f'Correlating 1 bg with {n_fg} fg catalogues...')
+    if len(cats['fg']) > 1:
+        for idx, cat_fg in enumerate(cats['fg']):
+            ng.process_cross(cat_fg, cats['bg'][0]) #, num_threads=params['n_cpu'])
+        varg = treecorr.calculateVarG(cats['bg'])
+        ng.finalize(varg)
+    else:
+        ng.process(cats['fg'][0], cats['bg'][0]) #, num_threads=params['n_cpu'])
 
     # Write to file
     out_path = params['out_path']

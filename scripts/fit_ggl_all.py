@@ -42,7 +42,7 @@ dndz_dir = '/home/mkilbing/astro/data/CFIS/v1.0/nz/'
 
 weight = 'w'
 
-n_split_arr = (1, 2)
+n_split_arr = (1, 2, 3)
 
 # Read mean log_M_BH
 mean_log10_M_BH = {}
@@ -119,7 +119,7 @@ for n_split in n_split_arr:
 fac = 1.05
 pow_idx = 0.8
 xlabel = rf'$\theta$ [{sep_units}]'
-ylabel = rf'$\theta^{pow_idx} \gamma_{\rm t}(\theta)$'
+ylabel = rf'$\theta^{pow_idx} \gamma_{{\rm t}}(\theta)$'
 colors = {
     'SP': 'r',
     'LF': 'b',
