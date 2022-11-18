@@ -71,8 +71,8 @@ while [ $# -gt 0 ]; do
       n_cpu="$2"
       shift
       ;;
-    --log_M_min)
-      log_M_min="$2"
+    --logM_min)
+      logM_min="$2"
       shift
       ;;
     --z_min)
