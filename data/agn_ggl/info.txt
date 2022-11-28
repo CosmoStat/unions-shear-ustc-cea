@@ -10,3 +10,8 @@ Columns: 	RA Dec z logM err_logM
 Reference: 	Shen et al. (2022) and Liu et al. (2019)
 Comments:	Combines both Shen and Liu catalogues.
 		For the Liu objects, err_logM is set to 0.
+
+Name: 		SDSS_SMBH_202210_UNIONS.txt
+Columns: 	RA Dec z logM err_logM
+Reference: 	Shen et al. (2022) and Liu et al. (2019)
+Comments:	Uses healpix to select SMBHs in the UNIONS footprint from SDSS_SMBH_202210.txt. 
