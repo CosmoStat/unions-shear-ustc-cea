@@ -157,6 +157,32 @@ def parse_options(p_def, short_options, types, help_strings):
     return options
 
 
+def write_mean_std_logM(
+        output_dir,
+        key_logM,
+        n_split,
+        weigh_suffix,
+        mask_list,
+        means_logM,
+        stds_logM,
+):
+    """Write Mean Std LogM
+
+    Write mean and std of log(M) to file.
+
+    """
+    out_name = (
+        f'{output_dir}/mean_{key_logM}_n_split_{n_split}{weigh_suffix}.txt'
+    ) 
+    with open(out_name, 'w') as f_out:
+        print( f'# idx mean({key_logM}) std({key_logM})', file=f_out)
+        for idx, _ in enumerate(mask_list):
+            print(
+                f'{idx} {means_logM[idx]:.3f} {stds_logM[idx]:.3f}',
+                file=f_out,
+            )
+
+
 def main(argv=None):
 
     params, short_options, types, help_strings  = params_default()
@@ -284,21 +310,16 @@ def main(argv=None):
         out_name,
     )
 
-    # Print mean values
-    out_name = (                                                                
-        f'{params["output_dir"]}'                                               
-        + f'/mean_{params["key_logM"]}_n_split_{params["n_split"]}_u.txt'
-    ) 
-    with open(out_name, 'w') as f_out:
-        print(
-            f'# idx mean({params["key_logM"]}) ({params["key_logM"]})',
-            file=f_out,
-        )
-        for idx, _ in enumerate(mask_list):
-            print(
-                f'{idx} {means_logM[idx]:.3f} {stds_logM[idx]:.3f}',
-                file=f_out,
-            )
+    # Write unweighted logM summaries to file
+    write_mean_std_logM(
+        params['output_dir'],
+        params['key_logM'],
+        params['n_split'],
+        '_u',
+        mask_list,
+        means_logM,
+        stds_logM,
+    )
 
     # Add columns for weight for each sample
     for idx in range(len(mask_list)):
@@ -464,22 +485,16 @@ def main(argv=None):
         density=True,
     )
 
-    # Print mean values
-    out_name = (                                                                
-        f'{params["output_dir"]}'                                               
-        + f'/mean_{params["key_logM"]}_n_split_{params["n_split"]}_w.txt'
-    ) 
-    with open(out_name, 'w') as f_out:
-        print(
-            f'# idx mean({params["key_logM"]}) std({params["key_logM"]})',
-            file=f_out,
-        )
-        for idx, _ in enumerate(mask_list):
-            print(
-                f'{idx} {means_logM_w[idx]:.3f} {stds_logM_w[idx]:.3f}',
-                file=f_out,
-            )
-
+    # Write weighted logM summaries to file
+    write_mean_std_logM(
+        params['output_dir'],
+        params['key_logM'],
+        params['n_split'],
+        '_w',
+        mask_list,
+        means_logM_w,
+        stds_logM_w
+    )
 
     dat_mask = {}
     for idx, mask in enumerate(mask_list):

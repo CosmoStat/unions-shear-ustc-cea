@@ -9,7 +9,7 @@ repo_path=$HOME/astro/repositories/github/unions-shear-ustc-cea
 repo2_path=$HOME/astro/repositories/github/unions-ia
 
 bin_path=${repo_path}/scripts
-bin_path_2=${repo_path}/scripts
+bin_path_2=${repo2_path}/scripts
 agn_data_path=${repo_path}/data/agn_ggl
 unions_data_path=/home/mkilbing/astro/data/CFIS/v1.0
 
@@ -103,6 +103,7 @@ function create_one_link() {
 function create_links() {
   AGN=$1
 
+  # AGN catalogues
   if [ "$AGN" == "Liu19" ]; then
     input_cat=SDSS_SMBH_202206.txt
   elif [ "$AGN" == "Shen22_and_Liu19" ]; then
@@ -113,6 +114,7 @@ function create_links() {
   fi
   create_one_link $input_cat $agn_data_path
 
+  # Lensing catalogues
   files=(
     "unions_shapepipe_2022_v1.0.fits"
     "mask_all.fits"
@@ -135,6 +137,11 @@ function create_links() {
   )
   for idx in ${!files[@]}; do
     create_one_link ${files[$idx]} ${dirs[$idx]}
+  done
+
+  # Redshift distributions
+  for file in ${unions_data_path}/nz/*.txt; do
+    ln -s $file
   done
 
   # Rename UNIONS WL catalogues (links)
@@ -266,9 +273,6 @@ split_sample
 # Compute correlations
 compute_ng
 
-
+# TODO: use HOD instead of linear bias model
 #echo "*** Compare to theory..."
 #compare_to_theory
-
-echo "*** Fit HOD model..."
-python ${bin_path}/fit_ggl_all.py | tee results.txt

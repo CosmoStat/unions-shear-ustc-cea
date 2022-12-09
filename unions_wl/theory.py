@@ -11,6 +11,8 @@
 
 import numpy as np
 
+import time
+
 from scipy.special import erf
 
 import pyccl as ccl
@@ -194,6 +196,8 @@ def gamma_t_theo(
         cls
 
     """
+    #start = time.time()
+
     z_lens = dndz_lens[0]
 
     # 2D tracers
@@ -228,7 +232,7 @@ def gamma_t_theo(
     # Angular cross-power spectrum
     if ell is None:
         ell_min = 2
-        ell_max =  100_000
+        ell_max = 100_000
         ell = np.arange(ell_min, ell_max)
 
     # to check: bias twice?
@@ -242,9 +246,17 @@ def gamma_t_theo(
             + pk_gm_info['model_type']
         )
 
-    cls_gG = ccl.angular_cl(cosmo, tracer_g, tracer_l, ell, p_of_k_a=pk_gm, limber_integration_method='qag_quad')
+    cls_gG = ccl.angular_cl(
+        cosmo,
+        tracer_g,
+        tracer_l,
+        ell,
+        p_of_k_a=pk_gm,
+        limber_integration_method='qag_quad'
+    )
 
     # Tangential shear
+    start = time.time()
     gt = ccl.correlation(
         cosmo,
         ell,
@@ -253,6 +265,8 @@ def gamma_t_theo(
         type='NG',
         method=integr_method,
     )
+    #end = time.time()
+    #print(f'gt: {end - start:.2f}s')
 
     return gt, ell, cls_gG
 

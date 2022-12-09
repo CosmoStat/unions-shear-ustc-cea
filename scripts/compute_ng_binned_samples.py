@@ -11,6 +11,8 @@ Compute GGL (ng-correlation) between two (binned) input catalogues.
 
 import sys
 
+from tqdm import tqdm
+
 from optparse import OptionParser
 
 from astropy.io import fits
@@ -54,7 +56,7 @@ def params_default():
         'physical' : False,
         'out_path' : './ggl_unions_sdss_matched.txt',
         'n_cpu': 1,
-        'verbose': True,
+        'verbose': False,
     }
 
     # Parameters which are not the default, which is ``str``
@@ -303,6 +305,7 @@ def main(argv=None):
             split = True
         else:
             split = False
+
         cats[sample] = create_treecorr_catalogs(
             data,
             sample,
@@ -333,12 +336,16 @@ def main(argv=None):
     if params['verbose']:
         print(f'Correlating 1 bg with {n_fg} fg catalogues...')
     if len(cats['fg']) > 1:
-        for idx, cat_fg in enumerate(cats['fg']):
-            ng.process_cross(cat_fg, cats['bg'][0]) #, num_threads=params['n_cpu'])
+        for idx, cat_fg in tqdm(
+            enumerate(cats['fg']),
+            total=len(cats['fg']),
+            disable=not params['verbose'],
+        ):
+            ng.process_cross(cat_fg, cats['bg'][0], num_threads=params['n_cpu'])
         varg = treecorr.calculateVarG(cats['bg'])
         ng.finalize(varg)
     else:
-        ng.process(cats['fg'][0], cats['bg'][0]) #, num_threads=params['n_cpu'])
+        ng.process(cats['fg'][0], cats['bg'][0], num_threads=params['n_cpu'])
 
     # Write to file
     out_path = params['out_path']
