@@ -15,7 +15,12 @@ from tqdm import tqdm
 
 from optparse import OptionParser
 
+import numpy as np
+
 from astropy.io import fits
+from astropy import units
+
+import pyccl as ccl
 
 import treecorr
 
@@ -50,6 +55,7 @@ def params_default():
         'key_e2': 'e2',
         'sign_e1': +1,
         'sign_e2': +1,
+        'key_z': 'z',
         'theta_min': 0.1,
         'theta_max': 200,
         'n_theta': 10,
@@ -64,6 +70,7 @@ def params_default():
         'sign_e1': 'int',
         'sign_e2': 'int',
         'physical': 'bool',
+        'n_theta': 'int',
         'n_cpu': 'int',
     }
 
@@ -81,10 +88,11 @@ def params_default():
         'key_e2': 'second ellipticity component column name, default={}',
         'sign_e1': 'first ellipticity multiplier (sign), default={}',
         'sign_e2': 'first ellipticity multiplier (sign), default={}',
+        'key_z': 'foreground redshift column name (if physical), default={}',
         'theta_min': 'minimum angular scale, default={}',
         'theta_max': 'maximum angular scale, default={}',
         'n_theta': 'number of angular scales, default={}',
-        'physical' : '2D coordinates are physical [Mpc] if True, default={}',
+        'physical' : '2D coordinates are physical [Mpc]',
         'out_path' : 'output path, default={}',
         'n_cpu' : 'number of CPUs for parallel processing, default={}',
     }
@@ -238,6 +246,96 @@ def create_treecorr_catalogs(
     return cat
 
 
+def rad_to_unit(value, unit):
+
+    return (value * units.rad).to(unit).value
+
+
+def create_treecorr_config(
+    coord_units,
+    scale_min,
+    scale_max,
+    sep_units,
+    n_theta,
+    n_cpu,
+    physical,
+    cosmo,
+    z_arr,
+):
+
+    TreeCorrConfig_arr = []
+    if not physical or True:
+
+        # Interpret scale_{min, max} as angular scales
+        my_TreeCorrConfig = {
+            'ra_units': coord_units,
+            'dec_units': coord_units,
+            'min_sep': scale_min,
+            'max_sep': scale_max,
+            'sep_units': sep_units,
+            'nbins': n_theta,
+            'num_threads': n_cpu,
+        }
+        TreeCorrConfig_arr.append(my_TreeCorrConfig)
+    else:
+
+        print('MKDEBUG physical')
+        # Angular distance at object redshift
+        d_ang = cosmo.angular_diameter_distance(z_arr)
+
+        n_obj = len(z_arr)
+        for idx in range(n_obj):
+
+            # Interpret scale_{min, max} as physical scales (in Mpc)
+
+            # Transfer physical to angular scales
+            theta_min = rad_to_unit(scale_min / d_ang[idx], sep_units)
+            theta_max = rad_to_unit(scale_max / d_ang[idx], sep_units)
+
+            my_TreeCorrConfig = {
+                'ra_units': coord_units,
+                'dec_units': coord_units,
+                'min_sep': theta_min,
+                'max_sep': theta_max,
+                'sep_units': sep_units,
+                'nbins': n_theta,
+                'num_threads': n_cpu,
+            }
+            TreeCorrConfig_arr.append(my_TreeCorrConfig)
+
+    return TreeCorrConfig_arr
+
+
+def ng_copy(ng):
+
+    ng_c = treecorr.NGCorrelation(ng.config)
+
+    ng_c.meanr = ng.meanr
+    ng_c.meanlogr = ng.meanlogr
+    ng_c.xi = ng.xi
+    ng_c.xi_im = ng.xi_im
+    ng_c.varxi = ng.varxi
+    ng_c.weight = ng.weight
+    ng_c.npairs = ng.npairs
+
+    return ng_c
+
+
+def ng_diff(ng_min, ng_sub):
+
+    ng_dif = ng_copy(ng_min)
+
+    ng_dif.meanr = ng_min.meanr - ng_sub.meanr
+    ng_dif.meanlogr = ng_min.meanlogr - ng_sub.meanlogr
+    ng_dif.xi = ng_min.xi - ng_sub.xi
+    ng_dif.xi_im = ng_min.xi_im - ng_sub.xi_im
+    ng_dif.varxi = ng_min.varxi - ng_sub.varxi
+    ng_dif.weight = ng_min.weight - ng_sub.weight
+    ng_dif.npairs = ng_min.npairs - ng_sub.npairs
+
+    return ng_dif
+
+
 def main(argv=None):
     """Main
 
@@ -297,6 +395,17 @@ def main(argv=None):
             if params['verbose']:
                 print(f'Using catalog weights for {sample} sample')
 
+    if params['physical']:
+        cosmo = ccl.Cosmology(
+            Omega_c=0.27,
+            Omega_b=0.045,
+            h=0.67,
+            sigma8=0.83,
+            n_s=0.96,
+        )
+    else:
+        cosmo = None
+
     # Create treecorr catalogues
     for sample in ('fg', 'bg'):
 
@@ -318,34 +427,80 @@ def main(argv=None):
             split,
         )
 
-    # Set treecorr config info for correlation
+    # Set treecorr config info (array) for correlation.
     sep_units = 'arcmin'
-    TreeCorrConfig = {
-        'ra_units': coord_units,
-        'dec_units': coord_units,
-        'min_sep': params['theta_min'],
-        'max_sep': params['theta_max'],
-        'sep_units': sep_units,
-        'nbins': params['n_theta'],
-        'num_threads': params['n_cpu'],
-    }
-    ng = treecorr.NGCorrelation(TreeCorrConfig)
+    TreeCorrConfig_arr = create_treecorr_config(
+        coord_units,
+        params['theta_min'],
+        params['theta_max'],
+        sep_units,
+        params['n_theta'],
+        params['n_cpu'],
+        params['physical'],
+        cosmo,
+        data['fg'][params['key_z']],
+    )
 
     # Compute correlation
+    ng_step = []
     n_fg = len(cats['fg'])
     if params['verbose']:
         print(f'Correlating 1 bg with {n_fg} fg catalogues...')
+
+    ng = treecorr.NGCorrelation(TreeCorrConfig_arr[0])
     if len(cats['fg']) > 1:
+
+        # More than one foreground catalogue: run individual correlations
         for idx, cat_fg in tqdm(
             enumerate(cats['fg']),
             total=len(cats['fg']),
             disable=not params['verbose'],
         ):
+            # Store previous correlation result
+            if idx == 0:
+                ng_prev = treecorr.NGCorrelation(TreeCorrConfig_arr[0])
+            else:
+                ng_prev = ng_copy(ng)
+
+            # Perform correlation
             ng.process_cross(cat_fg, cats['bg'][0], num_threads=params['n_cpu'])
+
+            # Grab last correlation: difference to previous run if not first
+            # call
+            if idx == 0:
+                ng_step.append(ng_copy(ng))
+            else:
+                ng_step.append(ng_diff(ng, ng_prev))
+
         varg = treecorr.calculateVarG(cats['bg'])
         ng.finalize(varg)
+
     else:
+
+        # One foreground catalogue: run single simultaneous correlation
         ng.process(cats['fg'][0], cats['bg'][0], num_threads=params['n_cpu'])
+
+    if params['physical']:
+
+        ng_comb = treecorr.NGCorrelation(TreeCorrConfig_arr[0])
+        for idx in range(len(ng_step)):
+            ng_comb.meanr += ng_step[idx].meanr * ng_step[idx].weight
+            ng_comb.meanlogr += ng_step[idx].meanlogr * ng_step[idx].weight
+            ng_comb.xi += ng_step[idx].xi * ng_step[idx].weight
+            ng_comb.xi_im += ng_step[idx].xi_im * ng_step[idx].weight
+            ng_comb.varxi += ng_step[idx].varxi * ng_step[idx].weight
+            ng_comb.weight += ng_step[idx].weight
+            ng_comb.npairs += ng_step[idx].npairs
+
+        ng_comb.meanr /= ng_comb.weight
+        ng_comb.meanlogr /= ng_comb.weight
+        ng_comb.xi /= ng_comb.weight
+        ng_comb.xi_im /= ng_comb.weight
+        ng_comb.varxi /= ng_comb.weight
+        
+        # Without the following line the ng correlation internally
+        # combined by treecorr will be used
+        #ng = ng_comb
 
     # Write to file
     out_path = params['out_path']
