@@ -29,6 +29,93 @@ import treecorr
 
 from cs_util import logging
 
+
+class ng_essentials(object):
+
+    def __init__(self, n_bin):
+        # Variance is not set during process_corr
+        self.meanr = np.zeros(n_bin)
+        self.meanlogr = np.zeros(n_bin)
+        self.xi = np.zeros(n_bin)
+        self.xi_im = np.zeros(n_bin)
+        self.weight = np.zeros(n_bin)
+        self.npairs = np.zeros(n_bin)
+
+    def copy(self, ng):
+
+        for jdx in range(len(self.meanr)):
+            self.meanr[jdx] = ng.meanr[jdx]
+            self.meanlogr[jdx] = ng.meanlogr[jdx]
+            self.xi[jdx] = ng.xi[jdx]
+            self.xi_im[jdx] = ng.xi_im[jdx]
+            self.weight[jdx] = ng.weight[jdx]
+            self.npairs[jdx] = ng.npairs[jdx]
+
+    def difference(self, ng_min, ng_sub):
+
+        # Compute difference between both correlations.
+        # These are weighted quantities
+        for jdx in range(len(self.meanr)):
+            self.weight[jdx] = ng_min.weight[jdx] - ng_sub.weight[jdx]
+
+            self.meanr[jdx] = ng_min.meanr[jdx] - ng_sub.meanr[jdx]
+            self.meanlogr[jdx] = ng_min.meanlogr[jdx] - ng_sub.meanlogr[jdx]
+
+
+            self.xi[jdx] = ng_min.xi[jdx] - ng_sub.xi[jdx]
+            self.xi_im[jdx] = ng_min.xi_im[jdx] - ng_sub.xi_im[jdx]
+            self.npairs[jdx] = ng_min.npairs[jdx] - ng_sub.npairs[jdx]
+
+        # Remove weight for angular scales
+        for jdx in range(len(self.meanr)):
+            if self.meanr[jdx] > 0:
+                self.meanr[jdx] = self.meanr[jdx] / self.weight[jdx]
+
+    def add(self, ng_sum):
+
+        for jdx in range(len(self.meanr)):
+            self.meanr[jdx] += ng_sum.meanr[jdx] * ng_sum.weight[jdx]
+
+        self.meanlogr += ng_sum.meanlogr
+        self.xi += ng_sum.xi
+        self.xi_im += ng_sum.xi_im
+        self.weight += ng_sum.weight
+        self.npairs += ng_sum.npairs
+
+    def normalise_scales(self, sum_w=None):
+
+        if sum_w is not None:
+            sw = sum_w
+        else:
+            sw = self.weight
+
+        for jdx in range(len(self.meanr)):
+            self.meanr[jdx] = self.meanr[jdx] / sw[jdx]
+            self.meanlogr[jdx] = self.meanlogr[jdx] / sw[jdx]
+
+    def normalise_xi(self, sum_w=None):
+
+        if sum_w is not None:
+            sw = sum_w
+        else:
+            sw = self.weight
+
+        for jdx in range(len(self.meanr)):
+            self.xi[jdx] = self.xi[jdx] / sw[jdx]
+            self.xi_im[jdx] = self.xi_im[jdx] / sw[jdx]
+
+    def set_units_scales(self, sep_units):
+
+        #if all(self.meanr) > 0:
+            #print('set_units 1', self.meanr[0], self.meanr[-1])
+
+        # Angular scales: coordinates need to be attributed at the end
+        self.meanr = (self.meanr * units.rad).to(sep_units).value
+        #if all(self.meanr) > 0:
+            #print('set_units 2', self.meanr[0], self.meanr[-1])
+
+        # Log-scales: more complicated
+
 def params_default():
     """PARAMS DEFAULT
 
@@ -268,18 +355,27 @@ def create_treecorr_config(
 
     if physical:
 
+        print('Create config physical')
         # Min and max angular distance at object redshift
         a_max = 1 / (1 + min(z_arr))
         a_min = 1 / (1 + max(z_arr))
         d_ang_min = ccl.angular_diameter_distance(cosmo, a_max)
         d_ang_max = ccl.angular_diameter_distance(cosmo, a_min)
 
+        print('z = ', min(z_arr), ' ... ', max(z_arr))
+        print('d_ang = ', d_ang_min, ' ... ', d_ang_max, ' Mpc')
+        print('scale = ', scale_min, ' ... ', scale_max, ' Mpc')
+
         # Transfer physical to angular scales
         theta_min = rad_to_unit(float(scale_min) / d_ang_max, sep_units)
         theta_max = rad_to_unit(float(scale_max) / d_ang_min, sep_units)
 
+        print('theta = ', theta_min, ' ... ', theta_max, ' arcmin')
+        print('theta = ', theta_min*0.0002908882086657216, ' ... ', theta_max*0.0002908882086657216, ' rad')
+
     else:
 
+        print('Create config not physical')
         # Interpret scale_{min, max} as angular scales
         theta_min = scale_min
         theta_max = scale_max
@@ -294,7 +390,10 @@ def create_treecorr_config(
         'num_threads': n_cpu,
     }
 
-    print('Min and max angular scales = ', theta_min, theta_max, sep_units)
+    t_min = theta_min * units.Unit(sep_units)
+    t_max = theta_max * units.Unit(sep_units)
+    print('Min and max angular scales = ', t_min, t_max)
+    print('Min and max angular scales = ', t_min.to('rad'), t_max.to('rad'))
 
     return TreeCorrConfig
 
@@ -339,63 +438,123 @@ def get_interp(x_new, x, y):
         # Interpolate y to different coordinates x_new
         y_new = f_interp(x_new)
     except ValueError:
+        print('Failed: Interpolating from: ', x[0], ' ... ', x[-1])
+        print(' to: ', x_new[0], ' ... ', x_new[-1])
         raise
 
     return y_new
 
 
-def ng_stack(ng_step, cosmo, z_arr, r_min, r_max, n_r, sep_units):
+def ng_stack_angular(TreeCorrConfig, all_ng, n_corr):
 
-    # Angular distance at object redshift
-    d_ang = ccl.angular_diameter_distance(cosmo, 1 / (1 + z_arr))
+    # Initialise combined correlation objects
+    ng_comb = treecorr.NGCorrelation(TreeCorrConfig)                 
 
-    TreeCorrConfig = create_treecorr_config(
-        'deg',
-        r_min,
-        r_max,
-        sep_units,
-        n_r,
-        1,
-        False,
-        cosmo,
-        None,
-    )
+    n_bins = len(ng_comb.meanr)
+    sep_units = ng_comb.sep_units
 
-    ng_comb = treecorr.NGCorrelation(TreeCorrConfig)
-    for idx in range(len(ng_step)):
+    # Add up all individual correlations
+    ng_final = ng_essentials(n_bins)
 
-        #if ng_step[idx].weight.sum() == 0:
-            #continue
+    sum_w = 0
+    for ng in all_ng:
+        sum_w += ng.weight
 
-        # Transfer min and max physical to angular scales
-        #theta_min = rad_to_unit(float(r_min) / d_ang[idx], sep_units)
-        #theta_max = rad_to_unit(float(r_max) / d_ang[idx], sep_units)
-        
-        # Create array with new angular scales
-        #theta = np.geomspace(theta_min, theta_max, n_r)
+    for ng in all_ng:
+        ng.normalise_scales(sum_w=sum_w)
+        ng.set_units_scales(sep_units)
 
-        #x = ng_step[idx].meanr
+    for ng in all_ng:
+        ng_final.add(ng)
 
-        # Stack on physical coordinates
-        #ng_comb.xi += get_interp(theta, x, ng_step[idx].xi * ng_step[idx].weight)
-        #ng_comb.weight += get_interp(theta, x, ng_step[idx].weight)
+    ng_final.normalise_xi(sum_w=sum_w)
 
-        # MKDEBUG angular coordinates
-        ng_comb.meanr += ng_step[idx].meanr * ng_step[idx].weight
-        ng_comb.meanlogr += ng_step[idx].meanlogr * ng_step[idx].weight
-        ng_comb.xi += ng_step[idx].xi # * ng_step[idx].weight
-        ng_comb.xi_im += ng_step[idx].xi_im * ng_step[idx].weight
-        ng_comb.varxi += ng_step[idx].varxi * ng_step[idx].weight
-        ng_comb.weight += ng_step[idx].weight
-        ng_comb.npairs += ng_step[idx].npairs
+    for jdx in range(n_bins):
+        ng_comb.meanr[jdx] = ng_final.meanr[jdx]
+        ng_comb.meanlogr[jdx] = ng_final.meanlogr[jdx]
+        ng_comb.xi[jdx] = ng_final.xi[jdx]
+        ng_comb.xi_im[jdx] = ng_final.xi_im[jdx]
+        ng_comb.weight[jdx] = ng_final.weight[jdx]
+        ng_comb.npairs[jdx] = ng_final.npairs[jdx]
 
-    #ng_comb.meanr = theta
-    ng_comb.meanr /= ng_comb.weight
-    ng_comb.meanlogr /= ng_comb.weight
-    ng_comb.xi /=  len(ng_step) # ng_comb.weight
-    ng_comb.xi_im /= ng_comb.weight
-    ng_comb.varxi /= ng_comb.weight
-        
+    # Angular scales: coordinates need to be attributed at the end
+    ng_comb.meanlogr = (np.exp(ng_comb.meanlogr) * units.rad).to(sep_units).value
+    ng_comb.meanlogr = np.log(ng_comb.meanlogr)
+
+    return ng_comb
+
+
+def ng_stack_physical(TreeCorrConfig, all_ng, cosmo, z_arr):
+
+    # Initialise combined correlation objects
+    ng_comb = treecorr.NGCorrelation(TreeCorrConfig)                 
+
+    n_bins = len(ng_comb.rnom)
+    sep_units = ng_comb.sep_units
+    print('sep_units = ', sep_units)
+
+    ng_final = ng_essentials(n_bins)
+
+    sum_w = 0
+    for ng in all_ng:
+        sum_w += ng.weight
+
+    for ng in all_ng:
+        #ng.normalise_scales(sum_w=sum_w)
+        ng.set_units_scales(sep_units)
+
+    for idx, ng in enumerate(all_ng):
+        if all(ng.meanr) > 0:
+            print('ng r test ', idx, ng.meanr)
+            break
+
+    # New x values to interpolate on [Mpc]
+    r = ng_comb.rnom
+
+    d_ang = cosmo.angular_diameter_distance(z_arr)
+
+    sum_w_new = 0
+    for idx, ng in enumerate(all_ng):
+
+        # Original angular x values [rad]
+        x = ng.meanr
+        if any(x < 1e-10):
+            continue
+
+        print(idx, x[0], x[-1], 'arcmin', z_arr[idx])
+
+        # New x values: transfer from physical [Mpc] to angular [sep_units]
+        x_new = r / d_ang[idx]
+        x_new = (x_new * units.rad).to(sep_units).value
+        print('idx, d_ang, r = ', idx, d_ang[idx], x_new[0], x_new[-1], ' arcmin')
+
+        # gamma_t
+
+        # Interpolate to new angular coordinates and add (= stack)
+        y = ng.xi
+        y_new = get_interp(x_new, x, y)
+        ng_final.xi += y_new
+
+        # Weights
+        y = ng.weight
+        y_new = get_interp(x_new, x, y)
+        sum_w_new += y_new
+
+    ng_final.normalise_xi(sum_w=sum_w_new)
+
+    for jdx in range(n_bins):
+        ng_comb.meanr[jdx] = ng_final.meanr[jdx]
+        ng_comb.meanlogr[jdx] = ng_final.meanlogr[jdx]
+        ng_comb.xi[jdx] = ng_final.xi[jdx]
+        ng_comb.xi_im[jdx] = ng_final.xi_im[jdx]
+        ng_comb.weight[jdx] = ng_final.weight[jdx]
+        ng_comb.npairs[jdx] = ng_final.npairs[jdx]
+
+    # Angular scales: coordinates need to be attributed at the end
+    ng_comb.meanlogr = (np.exp(ng_comb.meanlogr) * units.rad).to(sep_units).value
+    ng_comb.meanlogr = np.log(ng_comb.meanlogr)
+
+
     return ng_comb 
 
 
@@ -427,6 +586,10 @@ def main(argv=None):
 
     print('MKDEBUG cut to 10M')
     data['bg'] = data['bg'][:10_000_000]
+
+    physical_test = False
+    if physical_test:
+        print('MKDEBUG physical test')
 
     #import matplotlib.pylab as plt
     #plt.plot(data['bg']['RA'], data['bg']['DEC']
@@ -474,8 +637,10 @@ def main(argv=None):
             n_s=0.96,
         )
 
-        #n_theta = 100
-        n_theta = params['n_theta']
+        if physical_test:
+            n_theta = params['n_theta']
+        else:
+            n_theta = 100
     else:
         cosmo = None
 
@@ -511,36 +676,22 @@ def main(argv=None):
         sep_units,
         n_theta,
         params['n_cpu'],
-        False,
+        not physical_test,
         cosmo,
         data['fg'][params['key_z']],
     )
-    # MKDEBUG above False instead of:
-        #params['physical'],
-
-    # Compute correlation
-
-    # Variance is not set during process_corr
-    r_prev = np.zeros(params['n_theta'])
-    logr_prev = np.zeros(params['n_theta'])
-    xi_prev = np.zeros(params['n_theta'])
-    xi_im_prev = np.zeros(params['n_theta'])
-    w_prev = np.zeros(params['n_theta'])
-    np_prev = np.zeros(params['n_theta'])
-
-    all_r = []
-    all_logr = []
-    all_xi = []
-    all_xi_im = []
-    sum_w = np.zeros(params['n_theta'])
-    sum_np = np.zeros(params['n_theta'])
 
     n_fg = len(cats['fg'])
     if params['verbose']:
         print(f'Correlating 1 bg with {n_fg} fg catalogues...')
 
+    # Compute correlation(s)
     ng = treecorr.NGCorrelation(TreeCorrConfig)
+    n_corr = 0
     if len(cats['fg']) > 1:
+
+        ng_prev = ng_essentials(n_theta)
+        all_ng = []
 
         # More than one foreground catalogue: run individual correlations
         for idx, cat_fg in tqdm(
@@ -550,36 +701,28 @@ def main(argv=None):
         ):
 
             # Save previous cumulative correlations (empty if first)
-            for jdx in range(params['n_theta']):
-                r_prev[jdx] = ng.meanr[jdx]
-                logr_prev[jdx] = ng.meanlogr[jdx]
-                xi_prev[jdx] = ng.xi[jdx]
-                xi_im_prev[jdx] = ng.xi_im[jdx]
-                w_prev[jdx] = ng.weight[jdx]
-                np_prev[jdx] = ng.npairs[jdx]
+            ng_essentials.copy(ng_prev, ng)
 
             # Perform correlation
             ng.process_cross(cat_fg, cats['bg'][0], num_threads=params['n_cpu'])
 
             # Last correlation = difference betwen two cumulative results
-            sum_w += ng.weight - w_prev
-            sum_np += ng.npairs - np_prev
-            all_r.append(ng.meanr - r_prev)
-            all_logr.append(ng.meanlogr - logr_prev)
-            all_xi.append(ng.xi - xi_prev)
-            all_xi_im.append(ng.xi_im - xi_im_prev)
+            ng_diff = ng_essentials(n_theta)
+            ng_diff.difference(ng, ng_prev)
+            all_ng.append(ng_diff)
+
+            if all(ng_diff.weight) > 1e-10:
+                n_corr += 1
+                if n_corr < 5:
+                    print('MKDEBUG ', idx, ng_diff.meanr[4] / 0.0002908882086657216, ng.rnom[4])
 
             # Update previous cumulative correlations
-            for jdx in range(params['n_theta']):
-                r_prev[jdx] = ng.meanr[jdx]
-                logr_prev[jdx] = ng.meanlogr[jdx]
-                xi_prev[jdx] = ng.xi[jdx]
-                xi_im_prev[jdx] = ng.xi_im[jdx]
-                w_prev[jdx] = ng.weight[jdx]
-                np_prev[jdx] = ng.npairs[jdx]
+            ng_essentials.copy(ng_prev, ng)
 
         varg = treecorr.calculateVarG(cats['bg'])
         ng.finalize(varg)
+
+        print(f'Computed {n_corr} non-zero correlations')
 
     else:
 
@@ -588,28 +731,23 @@ def main(argv=None):
 
     if params['physical']:
 
-        ng_comb = treecorr.NGCorrelation(TreeCorrConfig)                 
-        xi_final = np.zeros(params['n_theta'])
-        xi_im_final = np.zeros(params['n_theta'])
+        if physical_test:
+            ng_comb = ng_stack_angular(TreeCorrConfig, all_ng, n_corr)
+        else:
+            # Create config for correlations stacked on physical scales
+            TreeCorrConfig = create_treecorr_config(
+                'deg',
+                params['theta_min'],
+                params['theta_max'],
+                sep_units,
+                params['n_theta'],
+                1,
+                False,
+                None,
+                None,
+            )
+            ng_comb = ng_stack_physical(TreeCorrConfig, all_ng, cosmo, data['fg'][params['key_z']])
 
-        for idx in range(len(all_r)):
-            ng_comb.meanr += all_r[idx]
-            ng_comb.meanlogr += all_logr[idx]
-            xi_final += all_xi[idx]
-            xi_im_final += all_xi_im[idx]
-
-        ng_comb.meanr = ((ng_comb.meanr / sum_w) * units.rad).to(sep_units).value
-
-        # Log scales
-        logr_tmp = ng_comb.meanlogr / sum_w
-        r_tmp = (np.exp(logr_tmp) * units.rad).to(sep_units).value
-        ng_comb.meanlogr = np.log(r_tmp)
-
-        for jdx in range(params['n_theta']):
-            ng_comb.xi[jdx] = xi_final[jdx] / sum_w[jdx]
-            ng_comb.xi_im[jdx] = xi_im_final[jdx] / sum_w[jdx]
-            ng_comb.weight[jdx] = sum_w[jdx]
-            ng_comb.npairs[jdx] = sum_np[jdx]
 
         # Without the following line the ng correlation internally
         # combined by treecorr will be used
