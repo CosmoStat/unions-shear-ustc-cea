@@ -146,7 +146,6 @@ def write_cls(out_path, ell, cls):
     write_ascii(out_path, (ell, cls), ('ell', 'C_ell'))
 
 
-
 def get_ngcorr_data(
     path,
     theta_min=1,

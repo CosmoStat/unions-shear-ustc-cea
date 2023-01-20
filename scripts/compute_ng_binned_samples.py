@@ -11,15 +11,131 @@ Compute GGL (ng-correlation) between two (binned) input catalogues.
 
 import sys
 
+from copy import copy
+
 from tqdm import tqdm
 
 from optparse import OptionParser
 
+import numpy as np
+import math
+from scipy.interpolate import interp1d
+
 from astropy.io import fits
+from astropy import units
+
+import pyccl as ccl
 
 import treecorr
 
 from cs_util import logging
+
+class ng_essentials(object):
+
+    def __init__(self, n_bin):
+        # Variance is not set during process_corr
+        self.meanr = np.zeros(n_bin)
+        self.meanlogr = np.zeros(n_bin)
+        self.xi = np.zeros(n_bin)
+        self.xi_im = np.zeros(n_bin)
+        self.weight = np.zeros(n_bin)
+        self.npairs = np.zeros(n_bin)
+
+    def copy_from(self, ng):
+
+        for jdx in range(len(self.meanr)):
+            self.meanr[jdx] = ng.meanr[jdx]
+            self.meanlogr[jdx] = ng.meanlogr[jdx]
+            self.xi[jdx] = ng.xi[jdx]
+            self.xi_im[jdx] = ng.xi_im[jdx]
+            self.weight[jdx] = ng.weight[jdx]
+            self.npairs[jdx] = ng.npairs[jdx]
+
+    def copy_to(self, ng):
+
+        for jdx in range(len(ng.meanr)):
+            ng.meanr[jdx] = self.meanr[jdx]
+            ng.meanlogr[jdx] = self.meanlogr[jdx]
+            ng.xi[jdx] = self.xi[jdx]
+            ng.xi_im[jdx] = self.xi_im[jdx]
+            ng.weight[jdx] = self.weight[jdx]
+            ng.npairs[jdx] = self.npairs[jdx]
+
+    def difference(self, ng_min, ng_sub):
+
+        # Compute difference between both correlations.
+        # If ng_min and ng_sub are two subsequent outputs of
+        # treecorr.proess_cross, these are weighted quantities.
+        # This is because the cumulative processing adds
+        # weighted results.
+        for jdx in range(len(self.meanr)):
+            self.weight[jdx] = ng_min.weight[jdx] - ng_sub.weight[jdx]
+
+            self.meanr[jdx] = ng_min.meanr[jdx] - ng_sub.meanr[jdx]
+            self.meanlogr[jdx] = ng_min.meanlogr[jdx] - ng_sub.meanlogr[jdx]
+
+            self.xi[jdx] = ng_min.xi[jdx] - ng_sub.xi[jdx]
+            self.xi_im[jdx] = ng_min.xi_im[jdx] - ng_sub.xi_im[jdx]
+            self.npairs[jdx] = ng_min.npairs[jdx] - ng_sub.npairs[jdx]
+
+        # Remove weight for angular scales, such that the latter
+        # are unweighted scales. Required for stacking on physical
+        # scales, where we need unweighted scale for each correlation
+        for jdx in range(len(self.meanr)):
+            if self.meanr[jdx] > 0:
+                self.meanr[jdx] = self.meanr[jdx] / self.weight[jdx]
+
+    def add(self, ng_sum):
+
+        for jdx in range(len(self.meanr)):
+            self.meanr[jdx] += ng_sum.meanr[jdx] * ng_sum.weight[jdx]
+
+        self.meanlogr += ng_sum.meanlogr
+        self.xi += ng_sum.xi
+        self.xi_im += ng_sum.xi_im
+        self.weight += ng_sum.weight
+        self.npairs += ng_sum.npairs
+
+    def add_physical(self, ng, r, d_ang, sep_units):
+
+        # Original angular x values [rad]
+        x = ng.meanr
+
+        # New x values: transfer from physical [Mpc] to angular [rad]
+        x_new = r / d_ang
+
+        # Re-bin to new angular coordinates and add (= stack)
+
+        # Angular scales: individual ones were not weighted, add weight
+        # back here
+        self.meanr += get_interp(x_new, x, ng.meanr * ng.weight)
+
+        self.meanlogr += get_interp(x_new, x, ng.meanlogr)
+        self.xi += get_interp(x_new, x, ng.xi)
+        self.xi_im += get_interp(x_new, x, ng.xi_im)
+        self.weight += get_interp(x_new, x, ng.weight)
+        self.npairs += get_interp(x_new, x, ng.npairs)
+
+
+    def normalise(self, n_bin_fac=1):
+
+        sw = self.weight
+
+        for jdx in range(len(self.meanr)):
+            self.meanr[jdx] = self.meanr[jdx] / sw[jdx]
+            self.meanlogr[jdx] = self.meanlogr[jdx] / sw[jdx]
+            self.xi[jdx] = self.xi[jdx] / sw[jdx]
+            self.xi_im[jdx] = self.xi_im[jdx] / sw[jdx]
+
+        self.weight *= n_bin_fac
+        self.npairs *= n_bin_fac
+
+    def set_units_scales(self, sep_units):
+
+        # Angular scales: coordinates need to be attributed at the end
+        self.meanr = (self.meanr * units.rad).to(sep_units).value
+
+        # Log-scales: more complicated
 
 def params_default():
     """PARAMS DEFAULT
@@ -50,10 +166,12 @@ def params_default():
         'key_e2': 'e2',
         'sign_e1': +1,
         'sign_e2': +1,
+        'key_z': 'z',
         'theta_min': 0.1,
         'theta_max': 200,
         'n_theta': 10,
         'physical' : False,
+        'stack': 'auto',
         'out_path' : './ggl_unions_sdss_matched.txt',
         'n_cpu': 1,
         'verbose': False,
@@ -64,6 +182,7 @@ def params_default():
         'sign_e1': 'int',
         'sign_e2': 'int',
         'physical': 'bool',
+        'n_theta': 'int',
         'n_cpu': 'int',
     }
 
@@ -81,10 +200,12 @@ def params_default():
         'key_e2': 'second ellipticity component column name, default={}',
         'sign_e1': 'first ellipticity multiplier (sign), default={}',
         'sign_e2': 'first ellipticity multiplier (sign), default={}',
+        'key_z': 'foreground redshift column name (if physical), default={}',
         'theta_min': 'minimum angular scale, default={}',
         'theta_max': 'maximum angular scale, default={}',
         'n_theta': 'number of angular scales, default={}',
-        'physical' : '2D coordinates are physical [Mpc] if True, default={}',
+        'physical' : '2D coordinates are physical [Mpc]',
+        'stack' : 'allowed are auto, cross, post, default={}',
         'out_path' : 'output path, default={}',
         'n_cpu' : 'number of CPUs for parallel processing, default={}',
     }
@@ -238,6 +359,192 @@ def create_treecorr_catalogs(
     return cat
 
 
+def rad_to_unit(value, unit):
+
+    return (value * units.rad).to(unit).value
+ 
+
+def unit_to_rad(value, unit):
+
+    return value * units.Unit(units).to('rad')
+
+
+def get_theta_min_max(r_min, r_max, d_ang_arr, sep_units):
+
+    # Min and max angular distance at object redshift
+    d_ang_min = min(d_ang_arr)
+    d_ang_max = max(d_ang_arr)
+    d_ang_mean = np.mean(d_ang_arr)
+
+    # Transfer physical to angular scales
+
+    theta_min = 1e30
+    theta_max = -1
+    for d_ang in d_ang_arr:
+        th_min = float(r_min) / d_ang
+        if th_min < theta_min:
+            theta_min = th_min
+        th_max = float(r_max) / d_ang
+        if th_max > theta_max:
+            theta_max = th_max
+
+    # Enlarge range to account for actual scale different from nominal
+    # scales, and outside of range
+    theta_min = theta_min / 1.5
+    theta_max = theta_max * 1.5
+
+    print(f'physical to angular scales, r = {r_min}  ... {r_max:} Mpc')
+    print(f'physical to angular scales, d_ang = {min(d_ang_arr):.2f}  ... {max(d_ang_arr):.2f} (mean {d_ang_mean:.2f}) Mpc')
+    print(f'physical to angular scales, theta = {theta_min:.2g}  ... {theta_max:.2g} rad')
+
+    theta_min = rad_to_unit(theta_min, sep_units)
+    theta_max = rad_to_unit(theta_max, sep_units)
+
+    print(f'physical to angular scales, theta = {theta_min:.2g}  ... {theta_max:.2f} arcmin')
+
+    return theta_min, theta_max
+
+
+def create_treecorr_config(
+    coord_units,
+    scale_min,
+    scale_max,
+    sep_units,
+    n_theta,
+    n_cpu,
+):
+
+    TreeCorrConfig = {
+        'ra_units': coord_units,
+        'dec_units': coord_units,
+        'min_sep': scale_min,
+        'max_sep': scale_max,
+        'sep_units': sep_units,
+        'nbins': n_theta,
+        'num_threads': n_cpu,
+    }
+
+    return TreeCorrConfig
+
+
+def get_interp(x_new, x, y):
+
+    y_new = np.zeros_like(x_new)
+
+    # Compute upper limit (assuming logarithmic bins)
+    log_x_upper_new = np.log(x_new[-1]) + np.log(x_new[-1]) - np.log(x_new[-2])
+    x_upper_new = np.exp(log_x_upper_new)
+
+    # Loop over original x-bins
+    n_bins = len(x)
+    for idx, x_val in enumerate(x):
+
+        # Zero value indicates no data in this bin
+        if x[idx] == 0:
+            continue
+
+        # Issue warning if out of range and not first or last bins.
+        if (
+            (idx != 0 and x[idx] < x_new[0])
+            or (idx != n_bins - 1 and x[idx] > x_upper_new)
+        ):
+            print(f'Warning: x[{idx}]={x[idx]:.3g} outside range {x_new[0]:.3g} ... {x_upper_new:.3g}')
+            continue
+
+        idx_tmp = np.searchsorted(x_new, x_val, side='left')
+        if idx_tmp == len(x_new): continue
+        if idx_tmp > 0 and (idx_tmp == len(x_new) or math.fabs(x_val - x_new[idx_tmp - 1]) < math.fabs(x_val - x_new[idx_tmp])):
+            idx_new = idx_tmp - 1
+        else:
+            idx_new = idx_tmp
+
+        # Place y value
+        y_new[idx_new] = y[idx]
+
+    return y_new
+
+
+
+
+def get_interp_low(x_new, x, y):
+
+    y_new = np.zeros_like(x_new)
+
+    # Compute upper limit (assuming logarithmic bins)
+    log_x_upper_new = np.log(x_new[-1]) + np.log(x_new[-1]) - np.log(x_new[-2])
+    x_upper_new = np.exp(log_x_upper_new)
+
+    # Loop over original x-bins
+    n_bins = len(x)
+    for idx, x_val in enumerate(x):
+
+        # Zero value indicates no data in this bin
+        if x[idx] == 0:
+            continue
+
+        # Issue warning if out of range and not first or last bins.
+        if (
+            (x[idx] < x_new[0])
+            or (x[idx] > x_upper_new)
+        ):
+            #print(f'Warning: x[{idx}]={x[idx]:.3g} outside range {x_new[0]:.3g} ... {x_upper_new:.3g}')
+            continue
+
+        # Indices where new bins are smaller than this original bin
+        tmp = np.where(x_new < x_val)
+        if len(tmp) == 0:
+            raise IndexError('Error 1')
+
+        idx_new_arr = tmp[0]
+        if len(idx_new_arr) == 0:
+            raise IndexError('Error 2')
+
+        # Largest of those indices
+        idx_new = idx_new_arr[-1]
+
+        # Place y value
+        y_new[idx_new] = y[idx]
+
+    return y_new
+
+
+def ng_stack(TreeCorrConfig, all_ng, all_d_ang, n_bin_fac=1):
+
+    # Initialise combined correlation objects
+    ng_comb = treecorr.NGCorrelation(TreeCorrConfig)                 
+
+    n_bins = len(ng_comb.rnom)
+    sep_units = ng_comb.sep_units
+
+    ng_final = ng_essentials(n_bins)
+
+    if all_d_ang is not None:
+
+        # New x values to interpolate on [Mpc]
+        r = ng_comb.rnom
+
+        # Add up all individual correlations on physical coordinates
+        for ng, d_ang in zip(all_ng, all_d_ang):
+            ng_final.add_physical(ng, r, d_ang, sep_units)
+
+    else:
+
+        # Add up all individual correlations on angular coordinates
+        for ng in all_ng:
+            ng_final.add(ng)
+
+    ng_final.set_units_scales(sep_units)
+    ng_final.normalise(n_bin_fac=n_bin_fac)
+
+    ng_final.copy_to(ng_comb)
+
+    # Angular scales: coordinates need to be attributed at the end
+    ng_comb.meanlogr = (np.exp(ng_comb.meanlogr) * units.rad).to(sep_units).value
+    ng_comb.meanlogr = np.log(ng_comb.meanlogr)
+
+    return ng_comb 
+
+
 def main(argv=None):
     """Main
 
@@ -264,12 +571,22 @@ def main(argv=None):
             print(f'Reading catalogue {input_path}')
         data[sample] = fits.getdata(input_path)
 
+    #print('MKDEBUG cut to 0.4M')
+    #data['bg'] = data['bg'][400_000:600_000]
+
+    n_bin_fac = 1
+    print('n_bin_fac = ', n_bin_fac)
+
     # Set treecorr catalogues
     coord_units = 'degrees'
     cats = {}
-    if params['verbose']:
+    if (
+        params['verbose']
+        and params['sign_e1'] != +1
+        and params['sign_e2'] != +1
+    ):
         print(
-            'Signs for ellipticity components ='
+            'Non-standard signs for ellipticity components ='
             + f' ({params["sign_e1"]:+d}, {params["sign_e2"]:+d})'
         )
 
@@ -297,11 +614,25 @@ def main(argv=None):
             if params['verbose']:
                 print(f'Using catalog weights for {sample} sample')
 
+    if params['physical']:
+        cosmo = ccl.Cosmology(
+            Omega_c=0.27,
+            Omega_b=0.045,
+            h=0.67,
+            sigma8=0.83,
+            n_s=0.96,
+        )
+        n_theta = params['n_theta'] * n_bin_fac
+
+    else:
+        cosmo = None
+        n_theta = params['n_theta']
+
     # Create treecorr catalogues
     for sample in ('fg', 'bg'):
 
         # Split cat into single objects if fg and physical
-        if sample == 'fg' and params['physical']:
+        if sample == 'fg' and (params['physical'] or params['stack'] != 'auto'):
             split = True
         else:
             split = False
@@ -319,33 +650,111 @@ def main(argv=None):
         )
 
     # Set treecorr config info for correlation
-    sep_units = 'arcmin'
-    TreeCorrConfig = {
-        'ra_units': coord_units,
-        'dec_units': coord_units,
-        'min_sep': params['theta_min'],
-        'max_sep': params['theta_max'],
-        'sep_units': sep_units,
-        'nbins': params['n_theta'],
-        'num_threads': params['n_cpu'],
-    }
-    ng = treecorr.NGCorrelation(TreeCorrConfig)
 
-    # Compute correlation
+    sep_units = 'arcmin'
+    if params['physical']:
+
+        # Angular distances to all objects
+        a_arr = 1 / (1 + data['fg'][params['key_z']]) 
+        d_ang = cosmo.angular_diameter_distance(a_arr)
+
+        theta_min, theta_max = get_theta_min_max(
+            params['theta_min'],
+            params['theta_max'],
+            d_ang,
+            sep_units,
+        )
+    else:
+        d_ang = None
+
+        theta_min = params['theta_min']
+        theta_max = params['theta_max']
+
+    TreeCorrConfig = create_treecorr_config(
+        coord_units,
+        theta_min,
+        theta_max,
+        sep_units,
+        n_theta,
+        params['n_cpu'],
+    )
+
     n_fg = len(cats['fg'])
     if params['verbose']:
         print(f'Correlating 1 bg with {n_fg} fg catalogues...')
+
+    # Compute correlation(s)
+    ng = treecorr.NGCorrelation(TreeCorrConfig)
+    n_corr = 0
     if len(cats['fg']) > 1:
+
+        ng_prev = ng_essentials(n_theta)
+        all_ng = []
+
+        # More than one foreground catalogue: run individual correlations
         for idx, cat_fg in tqdm(
             enumerate(cats['fg']),
             total=len(cats['fg']),
             disable=not params['verbose'],
         ):
+
+            # Save previous cumulative correlations (empty if first)
+            ng_essentials.copy_from(ng_prev, ng)
+
+            # Perform correlation
             ng.process_cross(cat_fg, cats['bg'][0], num_threads=params['n_cpu'])
-        varg = treecorr.calculateVarG(cats['bg'])
-        ng.finalize(varg)
+
+            # Last correlation = difference betwen two cumulative results
+            ng_diff = ng_essentials(n_theta)
+            ng_diff.difference(ng, ng_prev)
+
+            # Count (and add) only those will full correlations across scales
+            if True:
+            #if all(ng_diff.weight > 0):
+            #if any(ng_diff.weight > 0):
+                n_corr += 1
+
+                all_ng.append(ng_diff)
+                # Update previous cumulative correlations
+                ng_essentials.copy_from(ng_prev, ng)
+
+        if params['stack'] == 'cross':
+            if params['verbose']:
+                print('Cross (treecorr process_cross) stacking of fg objects')
+            varg = treecorr.calculateVarG(cats['bg'])
+            ng.finalize(varg)
+
+        if n_corr == 0:
+            raise ValueError('No non-zero correlations computed')
+        print(f'Computed {n_corr} non-zero correlations')
+
+
     else:
+
+        # One foreground catalogue: run single simultaneous correlation
+        if params['verbose']:
+            print('Automatic (treecorr process) stacking of fg objects')
         ng.process(cats['fg'][0], cats['bg'][0], num_threads=params['n_cpu'])
+
+    if params['physical']:
+
+        # Create new config for correlations stacked on physical scales.
+        # Use (command-line) input scales but interpret in Mpc
+        TreeCorrConfig = create_treecorr_config(
+            'deg',
+            params['theta_min'],
+            params['theta_max'],
+            sep_units,
+            params['n_theta'],
+            1,
+        )
+
+    if len(cats['fg']) > 1 and not params['stack'] == 'cross':
+        # Stack now (in post-processing) if more than one fg catalogue,
+        # and not cross stacking done
+        if params['verbose']:
+            print('Post-process (this script) stacking of fg objects')
+        ng = ng_stack(TreeCorrConfig, all_ng, d_ang, n_bin_fac=n_bin_fac)
 
     # Write to file
     out_path = params['out_path']
