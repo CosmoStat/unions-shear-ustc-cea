@@ -574,7 +574,7 @@ def main(argv=None):
     #print('MKDEBUG cut to 0.4M')
     #data['bg'] = data['bg'][400_000:600_000]
 
-    n_bin_fac = 10
+    n_bin_fac = 1
     print('n_bin_fac = ', n_bin_fac)
 
     # Set treecorr catalogues
