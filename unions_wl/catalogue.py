@@ -187,6 +187,10 @@ def get_ngcorr_data(
     }
 
     ng = treecorr.NGCorrelation(TreeCorrConfig)
-    ng.read(path)
+    try:
+        ng.read(path)
+    except:
+        print(f'Error while reading treecorr input file {path}')
+        raise
 
     return ng
