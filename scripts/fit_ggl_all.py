@@ -50,30 +50,32 @@ def params_default():
     # Specify all parameter names and default values
     params = {
         'model_type': 'hod',
-        'theta_min_fit_amin': 0.1,
-        'theta_max_fit_amin': 300,
+        'theta_min_fit': 0.1,
+        'theta_max_fit': 300,
         'n_split_max': 2,
         'n_cpu': 1,
         'weight': 'w',
+        'physical' : False,                                                     
         'verbose': False,
     }
 
     # Parameters which are not the default, which is ``str``
     types = {
-        'theta_min_fit_amin': 'float',
-        'theta_min_fit_amin': 'float',
+        'theta_min_fit': 'float',
+        'theta_min_fit': 'float',
         'n_split_max': 'int',
         'n_cpu': 'int',
+        'physical': 'bool',
     }
 
     # Parameters which can be specified as command line option
     help_strings = {
         'model_type': 'model type, \`linear\` or \`hod\`, default=\`{}\`',
-        'theta_min_fit_amin': (
-            'smallest angular scale for fit, in arcmin, default={}'
+        'theta_min_fit': (
+            'smallest angular scale for fit, in arcmin/Mpc, default={}'
         ),
-        'theta_max_fit_amin': (
-            'largest angular scale for fit, in arcmin, default={}'
+        'theta_max_fit': (
+            'largest angular scale for fit, in arcmin/Mpc, default={}'
         ),
         'n_split_max': 'maximum number of black-hole mass bins, default={}',
         'n_cpu': 'number of CPUs for parallel processing, default={}',
@@ -81,6 +83,7 @@ def params_default():
             'lens sample is weighted (\'w\') to create uniform redshift'
             + ' distribution, or unweighted (\'u\'), default={}'
         ),
+        'physical' : '2D coordinates are physical [Mpc]',
     }
 
     # Options which have one-letter shortcuts (include dash, e.g. '-n')
@@ -302,7 +305,6 @@ def g_t_model(params, x_data, extra):
         y-values of the model (tangential shear)
 
     """
-    theta_arr_deg = x_data
     cosmo = extra['cosmo']
 
     z_centers = {}
@@ -320,14 +322,24 @@ def g_t_model(params, x_data, extra):
         pk_gm_info['model_type'] = 'HOD'
         pk_gm_info['log10_Mmin'] = params['log10_Mmin']
 
-    y_model, _, _ = theory.gamma_t_theo(
-        theta_arr_deg,
-        cosmo,
-        (z_centers['lens'], nz['lens']),
-        (z_centers['source'], nz['source']),
-        pk_gm_info,
-        integr_method='FFTlog',
-    )
+    if not extra['physical']:
+        y_model, _, _ = theory.gamma_t_theo(
+            x_data,
+            cosmo,
+            (z_centers['lens'], nz['lens']),
+            (z_centers['source'], nz['source']),
+            pk_gm_info,
+            integr_method='FFTlog',
+        )
+    else:
+        y_model, _, _ = theory.w_p(
+            x_data,
+            cosmo,
+            (z_centers['lens'], nz['lens']),
+            (z_centers['source'], nz['source']),
+            pk_gm_info,
+            integr_method='FFTlog',
+        )
 
     return y_model
 
@@ -365,14 +377,15 @@ def loss(params, x_data, y_data, err, extra):
 
 def set_args_minimizer(
     ng,
-    theta_min_fit_amin,
-    theta_max_fit_amin,
+    theta_min_fit,
+    theta_max_fit,
     cosmo,
     z_centers,
     nz,
     n_split_arr,
     shapes,
-    blinds
+    blinds,
+    physical,
 ):
     # Set minimizer arguments
 
@@ -391,20 +404,30 @@ def set_args_minimizer(
                         'nz_lens': nz['lens'][n_split][idx],
                         'z_centers_source': z_centers['source'][sh][blind],
                         'nz_source': nz['source'][sh][blind],
+                        'physical': physical,
                     }
 
-                    x = ng[n_split][idx][sh].meanr
+                    # get scales
+                    if not physical:
+                        # in arcmin
+                        x = ng[n_split][idx][sh].meanr
+                    else:
+                        # in Mpc
+                        x = ng[n_split][idx][sh].r_nom
+
                     y = ng[n_split][idx][sh].xi
                     err = np.sqrt(ng[n_split][idx][sh].varxi)
                     w = (
-                        (x >= theta_min_fit_amin)
-                        & (x <= theta_max_fit_amin)
+                        (x >= theta_min_fit)
+                        & (x <= theta_max_fit)
                     )
-                    theta_deg = x[w] / 60
+                    x_w = x[w]
+                    if not physical:
+                        x_w = x_w / 60
                     gt = y[w]
                     dgt = err[w]
 
-                    args.append((theta_deg, gt, dgt, extra))
+                    args.append((x_w, gt, dgt, extra))
 
     return args
 
@@ -511,8 +534,8 @@ def retrieve_best_fit(res_arr, args, theta_arr_amin, n_split_arr, shapes, blinds
 
 def plot_data_with_fits(
     ng,
-    theta_min_fit_amin,
-    theta_max_fit_amin,
+    theta_min_fit,
+    theta_max_fit,
     g_t,
     theta_arr_amin,
     par_bf,
@@ -577,8 +600,8 @@ def plot_data_with_fits(
                         + f'_{blind}_{weight}_{ystr}.pdf'
                     )
                     plots.figure(figsize=(15, 10))
-                    plt.axvline(x=theta_min_fit_amin, linestyle='--')
-                    plt.axvline(x=theta_max_fit_amin, linestyle='--')
+                    plt.axvline(x=theta_min_fit, linestyle='--')
+                    plt.axvline(x=theta_max_fit, linestyle='--')
                     plots.plot_data_1d(
                         x,
                         y,
@@ -755,14 +778,15 @@ def main(argv=None):
 
     args = set_args_minimizer(
         ng,
-        params['theta_min_fit_amin'],
-        params['theta_max_fit_amin'],
+        params['theta_min_fit'],
+        params['theta_max_fit'],
         cosmo,
         z_centers,
         nz,
         n_split_arr,
         shapes,
         blinds,
+        params['physical'],
     )
 
     # Parameters to fit
@@ -798,8 +822,8 @@ def main(argv=None):
     plot_data_only(ng, sep_units, n_split_arr, weight, shapes)
     plot_data_with_fits(
         ng,
-        params['theta_min_fit_amin'],
-        params['theta_max_fit_amin'],
+        params['theta_min_fit'],
+        params['theta_max_fit'],
         g_t,
         theta_arr_amin,
         par_bf,
