@@ -265,8 +265,6 @@ def gamma_t_theo(
         type='NG',
         method=integr_method,
     )
-    #end = time.time()
-    #print(f'gt: {end - start:.2f}s')
 
     return gt, ell, cls_gG
 
@@ -328,7 +326,6 @@ def pk_gm_theo_IA(cosmo, bias_1, dndz_lens, a_1_IA = 1.,log10k_min=-4, log10k_ma
 def C_ell_pw(
     dndz_lens,
     rpar_min,
-    r_transverse,
     bias_1,
     source_data_1_bin,
     sdss_data_cut,
@@ -453,7 +450,7 @@ def gamma_t_theo_pw(
     else:
         pk_gm = p_of_k
         r_transverse = np.logspace(-2, 2, 10000) #needed for gamma_t(r_transverse) Mpc
-    C_ell_1 = C_ell_pw(dndz_lens, rpar_min, r_transverse, bias_1, source_data_1_bin, sdss_data_cut, cosmo, cosmo_ap)
+    C_ell_1 = C_ell_pw(dndz_lens, rpar_min, bias_1, source_data_1_bin, sdss_data_cut, cosmo, cosmo_ap)
 
     theta_brut = r_transverse*u.Mpc/cosmo_ap_1_bin.comoving_distance(z_l_av_1_bin[i])
     theta_rad = theta_brut*u.radian

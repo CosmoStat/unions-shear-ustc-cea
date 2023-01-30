@@ -8,6 +8,8 @@ catalogues.
 """
 
 import numpy as np
+import healpy as hp
+
 from astropy.io import ascii
 from astropy.table import Table
 
@@ -190,3 +192,40 @@ def get_ngcorr_data(
     ng.read(path)
 
     return ng
+
+
+def read_hp_mask(input_name, verbose=False):
+
+    if verbose:                                                       
+        print(f'Reading mask {input_name}...')                        
+
+    nest = False                                                                
+
+    # Open input mask                                                           
+    mask, header= hp.read_map(                                                  
+        input_name,                                                   
+        h=True,                                                                 
+        nest=nest,                                                              
+    )                                                                           
+    for (key, value) in header:                                                 
+        if key == 'ORDERING':                                                   
+            if value == 'RING':                                                 
+                if nest:                                                        
+                    raise ValueError(                                           
+                        'input mask has ORDENING=RING, set nest to False'       
+                    )                                                           
+            elif value == 'NEST':                                               
+                if not nest:                                                    
+                    raise ValueError(                                           
+                        'input mask has ORDENING=NEST, set nest to True'        
+                    )                                                           
+                                                                                
+    # Get nside from header                                                     
+    nside = None                                                                
+    for key, value in header:                                                   
+        if key == 'NSIDE':                                                      
+            nside = int(value)                                                  
+    if not nside:                                                               
+        raise KeyError('NSIDE not found in FITS mask header')
+
+    return mask, nest, nside
