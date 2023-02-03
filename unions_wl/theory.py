@@ -15,6 +15,8 @@ import time
 
 from scipy.special import erf
 
+from astropy import units
+
 import pyccl as ccl
 
 from pyccl.core import Cosmology
@@ -191,12 +193,11 @@ def gamma_t_theo(
     Returns
     -------
     array :
-        Tangential shear at scales ``theta``
+        Tangential shear at input scales
         ell
         cls
 
     """
-    #start = time.time()
 
     z_lens = dndz_lens[0]
 
@@ -226,16 +227,13 @@ def gamma_t_theo(
         n_samples=n_nz,
     )
 
-    # Bug when adding this (documented) option:
-    n_samples=n_nz,
-
     # Angular cross-power spectrum
     if ell is None:
         ell_min = 2
         ell_max = 100_000
         ell = np.arange(ell_min, ell_max)
 
-    # to check: bias twice?
+    # MKDEBUG to check: bias twice?
     if pk_gm_info['model_type'] == 'linear_bias':
         pk_gm = pk_gm_theo(cosmo, pk_gm_info['bias_1'])
     elif pk_gm_info['model_type'] == 'HOD':
@@ -256,7 +254,6 @@ def gamma_t_theo(
     )
 
     # Tangential shear
-    start = time.time()
     gt = ccl.correlation(
         cosmo,
         ell,
@@ -265,10 +262,140 @@ def gamma_t_theo(
         type='NG',
         method=integr_method,
     )
-    #end = time.time()
-    #print(f'gt: {end - start:.2f}s')
 
     return gt, ell, cls_gG
+
+
+def gamma_t_theo_phys(
+        r_Mpc,
+        cosmo,
+        dndz_lens,
+        dndz_source,
+        pk_gm_info,
+        ell=None,
+        integr_method='FFTlog',
+):
+    """GAMMA T THEO.
+
+    Theoretical prediction of the tangential shear of a source
+    population around lenses using the ccl library.
+
+    Parameters
+    ----------
+    r_Mpc: array
+        Angular physicak scales in Mpc
+    cosmo : pyccl.core.Cosmology
+        Cosmological parameters
+    dndz_lens : tuple of arrays
+        Lens redshift distribution (z, n(z))
+    dndz_source : tuple of arrays
+        Source redshift distribution (z, n(z))
+    ell : array, optional
+        2D Fourier mode, default is
+        np.geomspace(2, 10000, 1000)
+    pk_gm_info : dict
+        information about 3D galaxy-matter power spectrum
+    p_of_k : array_like, optional
+        3D power spectrum on a grid in (k, z). If not given,
+        the function ``pk_gm_theo`` is called
+    integr_method : str, optional
+        Method of integration over the Bessel function times
+        the angular power spectrum, default is 'FFT_log'
+
+    Returns
+    -------
+    array :
+        Tangential shear at input scales
+
+    """
+    z_lens = dndz_lens[0]
+    nz_lens = dndz_lens[1]
+    bias_g = np.ones_like(z_lens)
+
+    # Multiply galaxy bias with linear bias according to model.
+    # For HOD model galaxy bias is implemented in model, leave
+    # value to unity here.
+    if pk_gm_info['model_type'] == 'linear_bias':
+        bias_g *= pk_gm_info['bias_1']
+
+    # 2D tracers
+
+    # Weak lensing (sources)
+    n_nz = len(dndz_source[0])
+    tracer_l = ccl.WeakLensingTracer(
+        cosmo,
+        dndz=dndz_source,
+        n_samples=n_nz,
+    )
+
+    # Angular cross-power spectrum
+    if ell is None:
+        ell_min = 2
+        ell_max = 100_000
+        ell = np.arange(ell_min, ell_max)
+
+    # MKDEBUG to check: bias twice?
+    if pk_gm_info['model_type'] == 'linear_bias':
+        pk_gm = pk_gm_theo(cosmo, pk_gm_info['bias_1'])
+    elif pk_gm_info['model_type'] == 'HOD':
+        pk_gm = pk_gm_theo_hod(cosmo, pk_gm_info['log10_Mmin'])
+    else:
+        raise ValueError(
+            'Invalid power-spectrum model type '
+            + pk_gm_info['model_type']
+        )
+
+    # Galaxies (lenses)
+
+    gt = []
+    n_sub = 20
+    if len(z_lens) % n_sub != 0:
+        raise ValueError('n_sub is not divider of #nz_lens')
+    z_lens_sub = np.split(z_lens, n_sub)
+    nz_lens_sub = np.split(nz_lens, n_sub)
+    bias_g_sub = np.split(bias_g, n_sub)
+
+    nz_lens_mean_sub = []
+    for idx in range(len(z_lens_sub)):
+        tracer_g_sub = ccl.NumberCountsTracer(
+            cosmo,
+            False,
+            dndz=(z_lens_sub[idx], nz_lens_sub[idx]),
+            bias=(z_lens_sub[idx], bias_g_sub[idx]),
+        )
+
+        cls_gG_sub = ccl.angular_cl(
+            cosmo,
+            tracer_g_sub,
+            tracer_l,
+            ell,
+            p_of_k_a=pk_gm,
+            limber_integration_method='qag_quad'
+        )
+
+        a_lens = 1 / (1 + np.mean(z_lens_sub[idx]))
+        d_ang = cosmo.angular_diameter_distance(a_lens)
+        theta_rad = (r_Mpc / d_ang) * units.radian
+        theta_deg = theta_rad.to('degree')
+
+        # Tangential shear
+        gt_sub = ccl.correlation(
+            cosmo,
+            ell,
+            cls_gG_sub,
+            theta_deg,
+            type='NG',
+            method=integr_method,
+        )
+
+        # Mean n(z) of sub-slice
+        nz_lens_mean_sub.append(np.mean(nz_lens_sub[idx]))
+
+        gt.append(gt_sub * nz_lens_mean_sub[idx])
+
+    gt_tot = np.average(gt, axis=0, weights=nz_lens_mean_sub)
+
+    return gt_tot
 
 
 def pk_gm_theo_IA(cosmo, bias_1, dndz_lens, a_1_IA = 1.,log10k_min=-4, log10k_max=2, nk_per_decade=20):

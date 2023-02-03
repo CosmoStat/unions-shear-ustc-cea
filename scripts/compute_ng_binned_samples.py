@@ -137,6 +137,7 @@ class ng_essentials(object):
 
         # Log-scales: more complicated
 
+
 def params_default():
     """PARAMS DEFAULT
 

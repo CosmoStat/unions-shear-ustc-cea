@@ -423,6 +423,7 @@ def set_args_minimizer(
                     )
                     x_w = x[w]
                     if not physical:
+                        # transform from arcmin to deg 
                         x_w = x_w / 60
                     gt = y[w]
                     dgt = err[w]
