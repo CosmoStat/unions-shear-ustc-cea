@@ -19,10 +19,13 @@ methods=(SP LF)
 blinds=(A B C)
 weights=("u" "w")
 n_split_arr=(1 2 3)
+stack=angular
 AGN=Liu19
 logM_min=0
 z_min=0
 z_max=10
+theta_min=0.1
+theta_max=200
 footprint_mask=""
 n_cpu=1
 idx_ref=
@@ -47,6 +50,13 @@ usage="Usage: $(basename "$0") [OPTIONS]
   --idx_ref IDX_REF\n
    \tbin index IDX_REF for reference redshift histogram\n
    \tdefault none (flat weighted histograms)\n
+   -s, --stack STACK\n
+   \tstack using angular or physical coordinates, default=${stack}\n
+   --theta_min THETA_MIN\n
+   \tminimum angular scale, default=${theta_min}\n
+   --theta_max THETA_MAX\n
+   \tmaximum angular scale, default=${theta_max}\n
+
 "
 
 ## Save command line to log file
@@ -83,8 +93,20 @@ while [ $# -gt 0 ]; do
       z_max="$2"
       shift
       ;;
+    --theta_min)
+      theta_min="$2"
+      shift
+      ;;
+    --theta_max)
+      theta_max="$2"
+      shift
+      ;;
     --idx_ref)
       idx_ref="$2"
+      shift
+      ;;
+    -s|--stack)
+      stack="$2"
       shift
       ;;
   esac
@@ -224,11 +246,20 @@ function compute_ng() {
     done
   done
 
+  # Set stacking argument(s)
+  if [ "$stack" == "angular" ]; then
+    arg_s="--stack=auto"
+  elif [ "$stack" == "physical" ]; then
+    arg_s="--physical"
+  else
+    echo "Invalid stack value"
+  fi
+
     # Weighted fg
-    parallel -j ${n_cpu} ${bin_path}/compute_ng_binned_samples.py -v --input_path_fg agn_{1}.fits --input_path_bg cat_unions_{3}.fits --key_ra_fg ra --key_dec_fg dec --out_path {3}/ggl_agn_{1}_w.fits --key_w_bg=w --key_w_fg=w_{2} \>\> log_job.sh ::: ${c_n_str_arr[@]} :::+ ${c_arr[@]} ::: ${methods[@]}
+    parallel -j ${n_cpu} ${bin_path}/compute_ng_binned_samples.py -v --input_path_fg agn_{1}.fits --input_path_bg cat_unions_{3}.fits --key_ra_fg ra --key_dec_fg dec --out_path {3}/ggl_agn_{1}_w.fits --key_w_bg=w --key_w_fg=w_{2} $arg_s --theta_min ${theta_min} --theta_max=${theta_max} \>\> log_job.sh ::: ${c_n_str_arr[@]} :::+ ${c_arr[@]} ::: ${methods[@]}
 
     # Unweighted fg
-    parallel -j ${n_cpu} ${bin_path}/compute_ng_binned_samples.py -v --input_path_fg agn_{1}.fits --input_path_bg cat_unions_{3}.fits --key_ra_fg ra --key_dec_fg dec --out_path {3}/ggl_agn_{1}_u.fits --key_w_bg=w \>\> log_job.sh ::: ${c_n_str_arr[@]} :::+ ${c_arr[@]} ::: ${methods[@]}
+    parallel -j ${n_cpu} ${bin_path}/compute_ng_binned_samples.py -v --input_path_fg agn_{1}.fits --input_path_bg cat_unions_{3}.fits --key_ra_fg ra --key_dec_fg dec --out_path {3}/ggl_agn_{1}_u.fits --key_w_bg=w $arg_s --theta_min ${theta_min} --theta_max=${theta_max} \>\> log_job.sh ::: ${c_n_str_arr[@]} :::+ ${c_arr[@]} ::: ${methods[@]}
 
 }
 

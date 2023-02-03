@@ -137,6 +137,7 @@ class ng_essentials(object):
 
         # Log-scales: more complicated
 
+
 def params_default():
     """PARAMS DEFAULT
 
@@ -574,6 +575,8 @@ def main(argv=None):
     #print('MKDEBUG cut to 0.4M')
     #data['bg'] = data['bg'][400_000:600_000]
 
+    print(f'stacking: physical={params["physical"]}, stack={params["stack"]}')
+
     n_bin_fac = 1
     print('n_bin_fac = ', n_bin_fac)
 
@@ -728,7 +731,6 @@ def main(argv=None):
             raise ValueError('No non-zero correlations computed')
         print(f'Computed {n_corr} non-zero correlations')
 
-
     else:
 
         # One foreground catalogue: run single simultaneous correlation
@@ -764,8 +766,15 @@ def main(argv=None):
         out_path,
         rg=None,
         file_type=None,
-        precision=None
+        precision=None,
     )
+
+    # Fix missing keywords, to prevent subsequent treecorr read error
+    if params['stack'] != 'cross':
+        hdu_list = fits.open(out_path)
+        hdu_list[1].header['COORDS'] = 'spherical'
+        hdu_list[1].header['metric'] = 'Euclidean'
+        hdu_list.writeto(out_path, overwrite=True)
 
     return 0
 
