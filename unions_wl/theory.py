@@ -393,7 +393,12 @@ def gamma_t_theo_phys(
 
         gt.append(gt_sub * nz_lens_mean_sub[idx])
 
-    gt_tot = np.average(gt, axis=0, weights=nz_lens_mean_sub)
+    gt_tot = np.mean(gt, axis=0)
+
+    # MKDEBUG: Normalising by n(z) in each slice seems to bias
+    # <g_t> low...
+    #gt_tot = np.average(gt, axis=0, weights=nz_lens_mean_sub)
+    #gt_tot = np.sum(gt, axis=0) / np.sum(nz_lens_mean_sub)
 
     return gt_tot
 
