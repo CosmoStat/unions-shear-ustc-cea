@@ -6,10 +6,8 @@
 
 # Variables
 repo_path=$HOME/astro/repositories/github/unions-shear-ustc-cea
-repo2_path=$HOME/astro/repositories/github/unions-ia
 
 bin_path=${repo_path}/scripts
-bin_path_2=${repo2_path}/scripts
 agn_data_path=${repo_path}/data/agn_ggl
 unions_data_path=/home/mkilbing/astro/data/CFIS/v1.0
 
@@ -20,6 +18,7 @@ blinds=(A B C)
 weights=("u" "w")
 n_split_arr=(1 2 3)
 stack=angular
+Delta_Sigma=0
 AGN=Liu19
 logM_min=0
 z_min=0
@@ -52,6 +51,8 @@ usage="Usage: $(basename "$0") [OPTIONS]
    \tdefault none (flat weighted histograms)\n
    -s, --stack STACK\n
    \tstack using angular or physical coordinates, default=${stack}\n
+   --Delta_Sigma\n
+   \testimator is excess surface mass density instead of tangential shear\n
    --theta_min THETA_MIN\n
    \tminimum angular scale, default=${theta_min}\n
    --theta_max THETA_MAX\n
@@ -109,9 +110,19 @@ while [ $# -gt 0 ]; do
       stack="$2"
       shift
       ;;
+    --Delta_Sigma)
+      Delta_Sigma=1
+      ;;
   esac
   shift
 done
+
+
+# Check options
+if [ "${Delta_Sigma}" == 1 ] && [ "$stack" == "angular" ]; then
+  echo "With Delta_Sigma=1 stack cannot be angular"
+  exit 5
+fi
 
 function create_one_link() {
   file=$1
@@ -191,7 +202,6 @@ function agn_txt2fits() {
 
 }
 
-
 function footprint() {
 
   if [ "$footprint_mask" != "" ]; then
@@ -226,7 +236,20 @@ function split_sample() {
     nz_opt=""
   fi
 
-  parallel -j ${n_cpu} ${bin_path}/split_sample.py -v -n {1} --z_min=${z_min} --z_max=${z_max} --logM_min=${logM_min} ${nz_opt} \>\> log_job.sh ::: ${n_split_arr[@]}
+  if [ "${Delta_Sigma}" == "1" ]; then
+
+      for sh in ${methods[@]}; do
+        for blind in ${blinds[@]}; do
+          parallel -j ${n_cpu} ${bin_path}/split_sample.py -v -n {1} --z_min=${z_min} --z_max=${z_max} --logM_min=${logM_min} ${nz_opt} --Delta_Sigma --dndz_source_path dndz_${sh}_${blind}.txt -o $sh --output_fname_base agn_${blind} \>\> log_job.sh ::: ${n_split_arr[@]}
+
+      done
+  done
+
+  else
+
+    parallel -j ${n_cpu} ${bin_path}/split_sample.py -v -n {1} --z_min=${z_min} --z_max=${z_max} --logM_min=${logM_min} ${nz_opt} \>\> log_job.sh ::: ${n_split_arr[@]}
+
+  fi
 
 }
 
@@ -255,12 +278,23 @@ function compute_ng() {
     echo "Invalid stack value"
   fi
 
+  if [ "${Delta_Sigma}" == "1" ]; then
+
+    # Weighted fg
+    parallel -j ${n_cpu} ${bin_path}/compute_ng_binned_samples.py -v --input_path_fg {3}/agn_{4}_{1}.fits --input_path_bg cat_unions_{3}.fits --key_ra_fg ra --key_dec_fg dec --out_path {3}/ggl_agn_{1}_w.fits --key_w_bg=w --key_w_fg=w_{2} $arg_s --theta_min ${theta_min} --theta_max=${theta_max} \>\> log_job.sh ::: ${c_n_str_arr[@]} :::+ ${c_arr[@]} ::: ${methods[@]} ::: ${blinds[@]}
+
+    # Unweighted fg
+    parallel -j ${n_cpu} ${bin_path}/compute_ng_binned_samples.py -v --input_path_fg {3}/agn_{4}_{1}.fits --input_path_bg cat_unions_{3}.fits --key_ra_fg ra --key_dec_fg dec --out_path {3}/ggl_agn_{1}_u.fits --key_w_bg=w $arg_s --theta_min ${theta_min} --theta_max=${theta_max} \>\> log_job.sh ::: ${c_n_str_arr[@]} :::+ ${c_arr[@]} ::: ${methods[@]} ::: ${blinds[@]}
+
+  else
+
     # Weighted fg
     parallel -j ${n_cpu} ${bin_path}/compute_ng_binned_samples.py -v --input_path_fg agn_{1}.fits --input_path_bg cat_unions_{3}.fits --key_ra_fg ra --key_dec_fg dec --out_path {3}/ggl_agn_{1}_w.fits --key_w_bg=w --key_w_fg=w_{2} $arg_s --theta_min ${theta_min} --theta_max=${theta_max} \>\> log_job.sh ::: ${c_n_str_arr[@]} :::+ ${c_arr[@]} ::: ${methods[@]}
 
     # Unweighted fg
     parallel -j ${n_cpu} ${bin_path}/compute_ng_binned_samples.py -v --input_path_fg agn_{1}.fits --input_path_bg cat_unions_{3}.fits --key_ra_fg ra --key_dec_fg dec --out_path {3}/ggl_agn_{1}_u.fits --key_w_bg=w $arg_s --theta_min ${theta_min} --theta_max=${theta_max} \>\> log_job.sh ::: ${c_n_str_arr[@]} :::+ ${c_arr[@]} ::: ${methods[@]}
 
+  fi
 }
 
 
@@ -273,7 +307,7 @@ function compare_to_theory() {
         for blind in ${blinds[@]}; do
           for weight in ${weights[@]}; do
 
-              ${bin_path_2}/ggl_compare_data_theory.py --corr_path $sh/ggl_agn_${c}_n_split_${n_split}_${weight}.fits --dndz_lens_path hist_z_${c}_n_split_${n_split}_${weight}.txt --dndz_source_path ~/astro/data/CFIS/v1.0/nz/dndz_${sh}_${blind}.txt -v --theta_min 0.1 --theta_max 200 --n_theta 10 --bias_1 1.0 --out_base ${sh}/gamma_tx_${c}_n_split_${n_split}_${blind}_${weight} | tee -a log_job.sh
+              ${bin_path}/ggl_compare_data_theory.py --corr_path $sh/ggl_agn_${c}_n_split_${n_split}_${weight}.fits --dndz_lens_path hist_z_${c}_n_split_${n_split}_${weight}.txt --dndz_source_path dndz_${sh}_${blind}.txt -v --theta_min 0.1 --theta_max 200 --n_theta 10 --bias_1 1.0 --out_base ${sh}/gamma_tx_${c}_n_split_${n_split}_${blind}_${weight} | tee -a log_job.sh
 
           done
         done
@@ -290,16 +324,16 @@ function compare_to_theory() {
 rm -f log_job.sh
 
 # Set links to data files
-create_links $AGN
+#create_links $AGN
 
 # Transform AGN files
-agn_txt2fits
+#agn_txt2fits
 
 # Select AGNs in UNIONS footprint
 footprint
 
 # Split AGNs into redshift bins
-split_sample
+#split_sample
 
 # Compute correlations
 compute_ng

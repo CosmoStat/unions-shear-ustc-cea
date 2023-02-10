@@ -22,9 +22,9 @@ import pyccl as ccl
 
 from unions_wl import theory
 from unions_wl import catalogue as cat
+from unions_wl import defaults
 
 from cs_util import logging
-
 from cs_util import plots
 
 
@@ -53,6 +53,7 @@ def params_default():
         'theta_max': 200,
         'n_theta': 20,
         'physical' : False,
+        'Delta_Sigma' : False,
         'out_base': 'gamma_tx',
         'out_cls_base': None,
         'verbose': True,
@@ -65,18 +66,21 @@ def params_default():
         'theta_max': 'float',
         'n_theta': 'int',
         'physical': 'bool',
+        'Delta_Sigma': 'bool',
     }
 
     # Parameters which can be specified as command line option
     help_strings = {
         'corr_path': 'path to treecorr output file, default={}',
         'dndz_lens_path': 'path to lens redshift histogram, default={}',
-        'dndz_source_path': 'path to lens redshift histogram, default={}',
+        'dndz_source_path': 'path to source redshift histogram, default={}',
         'bias_1': 'linear bias, default={}',
         'theta_min': 'minimum angular scale, default={}',
         'theta_max': 'minimum angular scale, default={}',
         'n_theta': 'number of angular scales, default={}',
         'physical' : '2D coordinates are physical [Mpc], default={}',
+        'Delta_Sigma' : 'excess surface mass density instead of tangential'
+            + ' shear  default={}',
         'out_base': 'output base path, default={}',
         'out_cls_base': (
             'output path for angular power spectrum, default no output'
@@ -154,6 +158,27 @@ def parse_options(p_def, short_options, types, help_strings):
     return options
 
 
+def check_options(options):                                                     
+    """Check command line options.                                              
+                                                                                
+    Parameters                                                                  
+    ----------                                                                  
+    options: tuple                                                              
+        Command line options                                                    
+                                                                                
+    Returns                                                                     
+    -------                                                                     
+    bool                                                                        
+        Result of option check. False if invalid option value.                  
+                                                                                
+    """                                                                         
+    if options['Delta_Sigma'] and not options['physical']:
+        print('With Delta_Sigma=True physical needs to be True')
+        return False
+
+    return True
+
+
 def main(argv=None):
     """Main
 
@@ -165,26 +190,21 @@ def main(argv=None):
 
     options = parse_options(params, short_options, types, help_strings)
 
+
     # Update parameter values
     for key in vars(options):
         params[key] = getattr(options, key)
 
+    if check_options(params) is False:                                         
+        return 1
+
     # Save calling command
     logging.log_command(argv)
 
-    # Set ell_max to large value, for spline interpolation (in integral over
-    # C_ell to get real-space correlation functions). Avoid aliasing
-    # (oscillations)
-    ccl.spline_params.ELL_MAX_CORR = 10_000_000
+    plt.rcParams['font.size'] = 18
 
-    # Cosmology
-    cosmo = ccl.Cosmology(
-        Omega_c=0.27,
-        Omega_b=0.045,
-        h=0.67,
-        sigma8=0.83,
-        n_s=0.96,
-    )
+    # Default cosmology
+    cosmo = defaults.Cosmology()
 
     # Read redshift distributions
     z_centers = {}
@@ -219,7 +239,7 @@ def main(argv=None):
         pk_gm_info['log10_Mmin'] = 11.5
 
     if not params['physical']:
-        g_t, ell, cls = theory.gamma_t_theo(
+        y_theo, ell, cls = theory.gamma_t_theo(
             theta_arr_deg,
             cosmo,
             (z_centers['lens'], nz['lens']),
@@ -228,13 +248,14 @@ def main(argv=None):
             integr_method='FFTlog',
         )
     else:
-        g_t = theory.gamma_t_theo_phys(
+        y_theo = theory.gamma_t_theo_phys(
             r_arr_Mpc,
             cosmo,
             (z_centers['lens'], nz['lens']),
             (z_centers['source'], nz['source']),
             pk_gm_info,
             integr_method='FFTlog',
+            Delta_Sigma=params['Delta_Sigma'],
         )
 
     # Write angular power spectrum (for testing)
@@ -266,7 +287,7 @@ def main(argv=None):
     fac = 1.05
 
     x = [ng.meanr, ng.meanr * fac, x_data]
-    y = [ng.xi, ng.xi_im, g_t]
+    y = [ng.xi, ng.xi_im, y_theo]
     dy = [np.sqrt(ng.varxi)] * 2 + [[]]
     title = 'GGL'
     if not params['physical']:
@@ -294,6 +315,40 @@ def main(argv=None):
             colors=colors,
             linestyles=ls,
         )
+
+    x = [x_data]
+    y = [y_theo]
+    dy = [[]]
+    title = 'GGL'
+    if not params['physical']:
+        xlabel = rf'$\theta$ [arcmin]'
+    else:
+        xlabel = rf'$r$ [Mpc]'
+    if not params['Delta_Sigma']:
+        ylabel = r'$\gamma_{\rm t}(\theta)$'
+    else:
+        ylabel = r'$\Delta \Sigma(r)$ [$M_\odot$ / pc$^2$]'
+    ls = ['-']
+    labels = ['model']
+    colors = ['g']
+
+    for ymode, ystr in zip((False, True), ('lin', 'log')):
+        out_path = f'{params["out_base"]}_model_{ystr}.pdf'
+        plots.plot_data_1d(
+            x,
+            y,
+            dy,
+            title,
+            xlabel,
+            ylabel,
+            out_path,
+            xlog=True,
+            ylog=ymode,
+            labels=labels,
+            colors=colors,
+            linestyles=ls,
+        )
+
 
     return 0
 

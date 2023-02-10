@@ -25,6 +25,7 @@ from lmfit import minimize, Parameters, fit_report
 
 from unions_wl import theory
 from unions_wl import catalogue as cat
+from unions_wl import defaults
 
 from cs_util import plots
 from cs_util import logging
@@ -231,13 +232,22 @@ def read_correlation_data(n_split_arr, weight, shapes):
     return ng
 
 
-def plot_data_only(ng, sep_units, n_split_arr, weight, shapes):
+def plot_data_only(ng, n_split_arr, weight, shapes, physical):
 
-    # Plot data only
+    """Plot data only.
+    
+    """
+    if not physical:
+        xlab = r'\theta'
+        sep_units = 'arcmin'
+    else:
+        xlab = 'r'
+        sep_units = 'Mpc'
+
     fac = 1.05
     pow_idx = 0.8
-    xlabel = rf'$\theta$ [{sep_units}]'
-    ylabel = rf'$\theta^{pow_idx} \gamma_{{\rm t}}(\theta)$'
+    xlabel = rf'${xlab}$ [{sep_units}]'
+    ylabel = rf'$(\theta/${sep_unit}$)^{pow_idx} \gamma_{{\rm t}}({xlab})$'
     colors = {
         'SP': 'r',
         'LF': 'b',
@@ -255,7 +265,11 @@ def plot_data_only(ng, sep_units, n_split_arr, weight, shapes):
         my_fac = 1 / fac
         for sh in shapes:
             for idx in range(n_split):
-                this_x = ng[n_split][idx][sh].meanr
+                if not physical:
+                    this_x = ng[n_split][idx][sh].meanr
+                else:
+                    this_x = ng[n_split][idx][sh].r_nom
+
                 x.append(this_x * my_fac)
                 my_fac *= fac
                 y.append(ng[n_split][idx][sh].xi * this_x ** pow_idx)
@@ -332,13 +346,14 @@ def g_t_model(params, x_data, extra):
             integr_method='FFTlog',
         )
     else:
-        y_model, _, _ = theory.w_p(
+        y_model, _, _ = theory.gamma_t_theo_phys(
             x_data,
             cosmo,
             (z_centers['lens'], nz['lens']),
             (z_centers['source'], nz['source']),
             pk_gm_info,
             integr_method='FFTlog',
+            Delta_Sigma=False,
         )
 
     return y_model
@@ -439,21 +454,28 @@ def get_scales_pl(ng, n_split_arr, shapes):
     f_theta_pl = 1.1
     n_theta_pl = 2000
 
-    theta_arr_amin = {}
+    x_plot = {}
     for n_split in n_split_arr:
         theta_arr_amin[n_split] = {}
         for idx in range(n_split):
-            theta_arr_amin[n_split][idx] = {}
+            x_plot[n_split][idx] = {}
             for sh in shapes:
-                theta_arr_amin[n_split][idx][sh] = (
+                if not physical:
+                    # scales in arcmin
+                    x = ng[n_split][idx][sh].meanr
+                else:
+                    x = ng[n_split][idx][sh].r_nom
+
+                x_plot[n_split][idx][sh] = (
                     np.geomspace(
-                        ng[n_split][idx][sh].meanr[0] / f_theta_pl,
-                        ng[n_split][idx][sh].meanr[-1] * f_theta_pl,
+                        x[0] / f_theta_pl,
+                        x[-1] * f_theta_pl,
                         num=n_theta_pl
                     )
                 )
 
-    return theta_arr_amin
+    return x_plot
+
 
 def do_minimize(idx, loss, fit_params, args):
     """Do Minimize.
@@ -486,7 +508,16 @@ def fit(args, fit_params, n_cpu, verbose):
     return res_arr
 
 
-def retrieve_best_fit(res_arr, args, theta_arr_amin, n_split_arr, shapes, blinds, par_name):
+def retrieve_best_fit(
+    res_arr,
+    args,
+    theta_arr_amin,
+    n_split_arr,
+    shapes,
+    blinds,
+    par_name,
+    physical,
+):
     # Retrieve best-fit results and models
 
     par_bf = {}
@@ -522,10 +553,16 @@ def retrieve_best_fit(res_arr, args, theta_arr_amin, n_split_arr, shapes, blinds
                         + f' {par_name} = {p_dp:.2ugP}'
                     )
 
-                    theta_arr_deg = theta_arr_amin[n_split][idx][sh] / 60
+                    if not physical:
+                        # arcmin -> deg
+                        x = x_plot[n_split][idx][sh] / 60
+                    else:
+                        # Mpc
+                        x = x_plot[n_split][idx][sh]
+
                     extra = args[jdx][3]
                     g_t[n_split][idx][sh][blind] = g_t_model(
-                        res_arr[jdx].params, theta_arr_deg, extra
+                        res_arr[jdx].params, x, extra
                     )
 
                     jdx += 1
@@ -538,20 +575,28 @@ def plot_data_with_fits(
     theta_min_fit,
     theta_max_fit,
     g_t,
-    theta_arr_amin,
+    x_plot,
     par_bf,
     par_name_latex,
-    sep_units,
     n_split_arr,
     weight,
     shapes,
     blinds,
+    physical,
 ):
-    # Plot results
+    """Plot results.
+
+    """
+    if not physical:
+        xlab = r'\theta'
+        sep_units = 'arcmin'
+    else:
+        xlab = 'r'
+        sep_units = 'Mpc'
 
     fac = 1.05
-    xlabel = rf'$\theta$ [{sep_units}]'
-    ylabel = r'$\gamma_{\rm t, \times}(\theta)$'
+    xlabel = rf'${xlab}$ [{sep_units}]'
+    ylabel = r'$\gamma_{\rm t, \times}({xlab})$'
     labels = [r'$\gamma_{\rm t}$', r'$\gamma_\times$', 'model']
     colors = ['g', 'g', 'g', 'b', 'b', 'b', 'r', 'r', 'r']
     eb_linestyles = ['-', ':', '', '-', ':', '', '-', ':', '']
@@ -570,11 +615,16 @@ def plot_data_with_fits(
                 my_fac = 1 / fac
                 for idx in range(n_split):
 
-                    x.append(ng[n_split][idx][sh].meanr * my_fac)
+                    if not physical:
+                        this_x = ng[n_split][idx][sh].meanr
+                    else:
+                        this_x = ng[n_split][idx][sh].r_nom
+
+                    x.append(this_x * my_fac)
                     my_fac *= fac
-                    x.append(ng[n_split][idx][sh].meanr * my_fac)
+                    x.append(this_x * my_fac)
                     my_fac *= fac
-                    x.append(theta_arr_amin[n_split][idx][sh])
+                    x.append(x_plot[n_split][idx][sh])
 
                     y.append(ng[n_split][idx][sh].xi)
                     y.append(ng[n_split][idx][sh].xi_im)
@@ -716,23 +766,6 @@ def plot_M_BH_M_halo(
         plots.savefig(f'logM_BH_log_Mmin_n_split_{n_split}_{weight}.png')
 
 
-def set_up_cosmo():
-
-
-    ccl.spline_params.ELL_MAX_CORR = 500_000
-    ccl.spline_params.N_ELL_CORR = 5_000
-
-    cosmo = ccl.Cosmology(
-            Omega_c=0.27,
-            Omega_b=0.045,
-            h=0.67,
-            sigma8=0.83,
-            n_s=0.96,
-    )
-
-    return cosmo
-
-
 def main(argv=None):
     """MAIN.
 
@@ -750,11 +783,9 @@ def main(argv=None):
     # Save calling command
     logging.log_command(argv)
 
-    cosmo = set_up_cosmo()
+    cosmo = defaults.get_cosmo_default()
 
     plt.rcParams['font.size'] = 18
-
-    sep_units = 'arcmin'
 
     weight = params['weight']
     shapes = ['SP', 'LF']
@@ -807,33 +838,34 @@ def main(argv=None):
     res_arr = fit(args, fit_params, params['n_cpu'], params['verbose'])
 
     # Retrieve best-fit parameters, errors, and models
-    theta_arr_amin = get_scales_pl(ng, n_split_arr, shapes)
+    x_plot = get_scales_pl(ng, n_split_arr, shapes)
     par_bf, std_bf, g_t = retrieve_best_fit(
         res_arr,
         args,
-        theta_arr_amin,
+        x_plot,
         n_split_arr,
         shapes,
         blinds,
         par_name,
+        params['physical'],
     )
 
     if params['verbose']:
         print('Create plots...')
-    plot_data_only(ng, sep_units, n_split_arr, weight, shapes)
+    plot_data_only(ng, n_split_arr, weight, shapes, params['physical'])
     plot_data_with_fits(
         ng,
         params['theta_min_fit'],
         params['theta_max_fit'],
         g_t,
-        theta_arr_amin,
+        x_plot,
         par_bf,
         par_name_latex,
-        sep_units,
         n_split_arr,
         weight,
         shapes,
         blinds,
+        physical,
     )
     if params['model_type'] == 'hod':
         plot_M_BH_M_halo(
