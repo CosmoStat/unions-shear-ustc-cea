@@ -24,11 +24,12 @@ from scipy.interpolate import interp1d
 from astropy.io import fits
 from astropy import units
 
-import pyccl as ccl
-
 import treecorr
 
+from unions_wl import defaults
+
 from cs_util import logging
+
 
 class ng_essentials(object):
 
@@ -136,6 +137,7 @@ class ng_essentials(object):
         self.meanr = (self.meanr * units.rad).to(sep_units).value
 
         # Log-scales: more complicated
+
 
 def params_default():
     """PARAMS DEFAULT
@@ -464,50 +466,6 @@ def get_interp(x_new, x, y):
     return y_new
 
 
-
-
-def get_interp_low(x_new, x, y):
-
-    y_new = np.zeros_like(x_new)
-
-    # Compute upper limit (assuming logarithmic bins)
-    log_x_upper_new = np.log(x_new[-1]) + np.log(x_new[-1]) - np.log(x_new[-2])
-    x_upper_new = np.exp(log_x_upper_new)
-
-    # Loop over original x-bins
-    n_bins = len(x)
-    for idx, x_val in enumerate(x):
-
-        # Zero value indicates no data in this bin
-        if x[idx] == 0:
-            continue
-
-        # Issue warning if out of range and not first or last bins.
-        if (
-            (x[idx] < x_new[0])
-            or (x[idx] > x_upper_new)
-        ):
-            #print(f'Warning: x[{idx}]={x[idx]:.3g} outside range {x_new[0]:.3g} ... {x_upper_new:.3g}')
-            continue
-
-        # Indices where new bins are smaller than this original bin
-        tmp = np.where(x_new < x_val)
-        if len(tmp) == 0:
-            raise IndexError('Error 1')
-
-        idx_new_arr = tmp[0]
-        if len(idx_new_arr) == 0:
-            raise IndexError('Error 2')
-
-        # Largest of those indices
-        idx_new = idx_new_arr[-1]
-
-        # Place y value
-        y_new[idx_new] = y[idx]
-
-    return y_new
-
-
 def ng_stack(TreeCorrConfig, all_ng, all_d_ang, n_bin_fac=1):
 
     # Initialise combined correlation objects
@@ -574,6 +532,8 @@ def main(argv=None):
     #print('MKDEBUG cut to 0.4M')
     #data['bg'] = data['bg'][400_000:600_000]
 
+    print(f'stacking: physical={params["physical"]}, stack={params["stack"]}')
+
     n_bin_fac = 1
     print('n_bin_fac = ', n_bin_fac)
 
@@ -615,13 +575,7 @@ def main(argv=None):
                 print(f'Using catalog weights for {sample} sample')
 
     if params['physical']:
-        cosmo = ccl.Cosmology(
-            Omega_c=0.27,
-            Omega_b=0.045,
-            h=0.67,
-            sigma8=0.83,
-            n_s=0.96,
-        )
+        cosmo = defaults.get_cosmo_default()
         n_theta = params['n_theta'] * n_bin_fac
 
     else:
@@ -728,7 +682,6 @@ def main(argv=None):
             raise ValueError('No non-zero correlations computed')
         print(f'Computed {n_corr} non-zero correlations')
 
-
     else:
 
         # One foreground catalogue: run single simultaneous correlation
@@ -764,8 +717,15 @@ def main(argv=None):
         out_path,
         rg=None,
         file_type=None,
-        precision=None
+        precision=None,
     )
+
+    # Fix missing keywords, to prevent subsequent treecorr read error
+    if params['stack'] != 'cross':
+        hdu_list = fits.open(out_path)
+        hdu_list[1].header['COORDS'] = 'spherical'
+        hdu_list[1].header['metric'] = 'Euclidean'
+        hdu_list.writeto(out_path, overwrite=True)
 
     return 0
 

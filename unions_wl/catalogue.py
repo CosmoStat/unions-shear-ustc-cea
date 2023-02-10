@@ -86,6 +86,7 @@ def read_dndz(file_path):
 
     """
     dat = ascii.read(file_path, format='commented_header')
+
     # Remove last n(z) value which is zero, to match bin centers
     nz = dat['dn_dz'][:-1]
     z_edges = dat['z']
@@ -99,52 +100,52 @@ def write_ascii(out_path, data, names):
 
     Write data to an ascii file.
 
-    Parameters                                                                  
-    ----------                                                                  
-    out_path : str                                                              
-        output file path                                                        
+    Parameters
+    ----------
+    out_path : str
+        output file path
     data : tupel of arrays
         data for output
     names : tupel
         column names
 
     """
-    t = Table(data, names=names)                                       
-    with open(out_path, 'w') as f:                                              
-        ascii.write(t, f, delimiter='\t', format='commented_header') 
+    t = Table(data, names=names)
+    with open(out_path, 'w') as f:
+        ascii.write(t, f, delimiter='\t', format='commented_header')
 
 
-def write_dndz(out_path, dndz):                                                 
-    """Write Dndz.                                                              
-                                                                                
-    Write redshift distribution (histogram) to file.                            
-                                                                                
-    Parameters                                                                  
-    ----------                                                                  
-    out_path : str                                                              
-        output file path                                                        
-    dndz : tupel of arrays                                                      
-        redshift distribution histogram (z, n(z))                               
-                                                                                
-    """                                                                         
+def write_dndz(out_path, dndz):
+    """Write Dndz.
+
+    Write redshift distribution (histogram) to file.
+
+    Parameters
+    ----------
+    out_path : str
+        output file path
+    dndz : tupel of arrays
+        redshift distribution histogram (z, n(z))
+
+    """
     write_ascii(out_path, dndz, ('z', 'dn_dz'))
 
 
-def write_cls(out_path, ell, cls):                                                 
-    """Write Cls.                                                              
-                                                                                
-    Write angular power spectrum to file.                            
-                                                                                
-    Parameters                                                                  
-    ----------                                                                  
-    out_path : str                                                              
-        output file path                                                        
-    ell : array                                                      
+def write_cls(out_path, ell, cls):
+    """Write Cls.
+
+    Write angular power spectrum to file.
+
+    Parameters
+    ----------
+    out_path : str
+        output file path
+    ell : array
         2D Fourier modes
     cls : array
         angular power spectrum
-                                                                                
-    """                                                                         
+
+    """
     write_ascii(out_path, (ell, cls), ('ell', 'C_ell'))
 
 
@@ -189,7 +190,11 @@ def get_ngcorr_data(
     }
 
     ng = treecorr.NGCorrelation(TreeCorrConfig)
-    ng.read(path)
+    try:
+        ng.read(path)
+    except:
+        print(f'Error while reading treecorr input file {path}')
+        raise
 
     return ng
 
@@ -229,3 +234,69 @@ def read_hp_mask(input_name, verbose=False):
         raise KeyError('NSIDE not found in FITS mask header')
 
     return mask, nest, nside
+
+
+def get_length(dat):
+    """GET LENGTH.
+
+    Return length of columns in data dictionary
+    
+    Parameters
+    ----------
+    dat : dict
+        input data columns
+
+    Returns
+    -------
+    int
+        column length
+
+    """
+    return len(dat[[key for key in dat][0]])
+
+
+def cut_data(dat, key, value, operator, verbose=False):
+    """CUT DATA.
+
+    Cut catalogue.
+
+    Parameters
+    ----------
+    dat : dict
+        data catalogue
+    key : str
+        column name on which to cut
+    value : float
+        threshold value for cut
+    operator : str
+        allowed are '<', '>'
+    verbose : bool, optional
+        verbose output if ``True``, default is ``False``
+
+    Returns
+    -------
+    dict
+        cut data catalogue
+
+    """
+    if value is not None:
+        if verbose:
+            print(f'cut_data: keep {key} {operator} {value}')
+        n_all = get_length(dat)
+
+        # Get indices to keep
+        if operator == '>':
+            w = dat[key] > value
+        if operator == '<':
+            w = dat[key] < value
+
+        # Cut data for all columns
+        for col in dat:
+            dat[col] = dat[col][w]
+
+        n_keep = get_length(dat)
+        n_cut = n_all - n_keep
+        if verbose:
+            print(f'removed/kept/all = {n_cut}/{n_keep}/{n_all} objects')
+
+        return dat

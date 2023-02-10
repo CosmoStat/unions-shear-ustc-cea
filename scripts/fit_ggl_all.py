@@ -25,6 +25,7 @@ from lmfit import minimize, Parameters, fit_report
 
 from unions_wl import theory
 from unions_wl import catalogue as cat
+from unions_wl import defaults
 
 from cs_util import plots
 from cs_util import logging
@@ -50,30 +51,32 @@ def params_default():
     # Specify all parameter names and default values
     params = {
         'model_type': 'hod',
-        'theta_min_fit_amin': 0.1,
-        'theta_max_fit_amin': 300,
+        'theta_min_fit': 0.1,
+        'theta_max_fit': 300,
         'n_split_max': 2,
         'n_cpu': 1,
         'weight': 'w',
+        'physical' : False,                                                     
         'verbose': False,
     }
 
     # Parameters which are not the default, which is ``str``
     types = {
-        'theta_min_fit_amin': 'float',
-        'theta_min_fit_amin': 'float',
+        'theta_min_fit': 'float',
+        'theta_min_fit': 'float',
         'n_split_max': 'int',
         'n_cpu': 'int',
+        'physical': 'bool',
     }
 
     # Parameters which can be specified as command line option
     help_strings = {
         'model_type': 'model type, \`linear\` or \`hod\`, default=\`{}\`',
-        'theta_min_fit_amin': (
-            'smallest angular scale for fit, in arcmin, default={}'
+        'theta_min_fit': (
+            'smallest angular scale for fit, in arcmin/Mpc, default={}'
         ),
-        'theta_max_fit_amin': (
-            'largest angular scale for fit, in arcmin, default={}'
+        'theta_max_fit': (
+            'largest angular scale for fit, in arcmin/Mpc, default={}'
         ),
         'n_split_max': 'maximum number of black-hole mass bins, default={}',
         'n_cpu': 'number of CPUs for parallel processing, default={}',
@@ -81,6 +84,7 @@ def params_default():
             'lens sample is weighted (\'w\') to create uniform redshift'
             + ' distribution, or unweighted (\'u\'), default={}'
         ),
+        'physical' : '2D coordinates are physical [Mpc]',
     }
 
     # Options which have one-letter shortcuts (include dash, e.g. '-n')
@@ -228,13 +232,22 @@ def read_correlation_data(n_split_arr, weight, shapes):
     return ng
 
 
-def plot_data_only(ng, sep_units, n_split_arr, weight, shapes):
+def plot_data_only(ng, n_split_arr, weight, shapes, physical):
 
-    # Plot data only
+    """Plot data only.
+    
+    """
+    if not physical:
+        xlab = r'\theta'
+        sep_units = 'arcmin'
+    else:
+        xlab = 'r'
+        sep_units = 'Mpc'
+
     fac = 1.05
     pow_idx = 0.8
-    xlabel = rf'$\theta$ [{sep_units}]'
-    ylabel = rf'$\theta^{pow_idx} \gamma_{{\rm t}}(\theta)$'
+    xlabel = rf'${xlab}$ [{sep_units}]'
+    ylabel = rf'$(\theta/${sep_unit}$)^{pow_idx} \gamma_{{\rm t}}({xlab})$'
     colors = {
         'SP': 'r',
         'LF': 'b',
@@ -252,7 +265,11 @@ def plot_data_only(ng, sep_units, n_split_arr, weight, shapes):
         my_fac = 1 / fac
         for sh in shapes:
             for idx in range(n_split):
-                this_x = ng[n_split][idx][sh].meanr
+                if not physical:
+                    this_x = ng[n_split][idx][sh].meanr
+                else:
+                    this_x = ng[n_split][idx][sh].r_nom
+
                 x.append(this_x * my_fac)
                 my_fac *= fac
                 y.append(ng[n_split][idx][sh].xi * this_x ** pow_idx)
@@ -302,7 +319,6 @@ def g_t_model(params, x_data, extra):
         y-values of the model (tangential shear)
 
     """
-    theta_arr_deg = x_data
     cosmo = extra['cosmo']
 
     z_centers = {}
@@ -320,14 +336,25 @@ def g_t_model(params, x_data, extra):
         pk_gm_info['model_type'] = 'HOD'
         pk_gm_info['log10_Mmin'] = params['log10_Mmin']
 
-    y_model, _, _ = theory.gamma_t_theo(
-        theta_arr_deg,
-        cosmo,
-        (z_centers['lens'], nz['lens']),
-        (z_centers['source'], nz['source']),
-        pk_gm_info,
-        integr_method='FFTlog',
-    )
+    if not extra['physical']:
+        y_model, _, _ = theory.gamma_t_theo(
+            x_data,
+            cosmo,
+            (z_centers['lens'], nz['lens']),
+            (z_centers['source'], nz['source']),
+            pk_gm_info,
+            integr_method='FFTlog',
+        )
+    else:
+        y_model, _, _ = theory.gamma_t_theo_phys(
+            x_data,
+            cosmo,
+            (z_centers['lens'], nz['lens']),
+            (z_centers['source'], nz['source']),
+            pk_gm_info,
+            integr_method='FFTlog',
+            Delta_Sigma=False,
+        )
 
     return y_model
 
@@ -365,14 +392,15 @@ def loss(params, x_data, y_data, err, extra):
 
 def set_args_minimizer(
     ng,
-    theta_min_fit_amin,
-    theta_max_fit_amin,
+    theta_min_fit,
+    theta_max_fit,
     cosmo,
     z_centers,
     nz,
     n_split_arr,
     shapes,
-    blinds
+    blinds,
+    physical,
 ):
     # Set minimizer arguments
 
@@ -391,20 +419,31 @@ def set_args_minimizer(
                         'nz_lens': nz['lens'][n_split][idx],
                         'z_centers_source': z_centers['source'][sh][blind],
                         'nz_source': nz['source'][sh][blind],
+                        'physical': physical,
                     }
 
-                    x = ng[n_split][idx][sh].meanr
+                    # get scales
+                    if not physical:
+                        # in arcmin
+                        x = ng[n_split][idx][sh].meanr
+                    else:
+                        # in Mpc
+                        x = ng[n_split][idx][sh].r_nom
+
                     y = ng[n_split][idx][sh].xi
                     err = np.sqrt(ng[n_split][idx][sh].varxi)
                     w = (
-                        (x >= theta_min_fit_amin)
-                        & (x <= theta_max_fit_amin)
+                        (x >= theta_min_fit)
+                        & (x <= theta_max_fit)
                     )
-                    theta_deg = x[w] / 60
+                    x_w = x[w]
+                    if not physical:
+                        # transform from arcmin to deg 
+                        x_w = x_w / 60
                     gt = y[w]
                     dgt = err[w]
 
-                    args.append((theta_deg, gt, dgt, extra))
+                    args.append((x_w, gt, dgt, extra))
 
     return args
 
@@ -415,21 +454,28 @@ def get_scales_pl(ng, n_split_arr, shapes):
     f_theta_pl = 1.1
     n_theta_pl = 2000
 
-    theta_arr_amin = {}
+    x_plot = {}
     for n_split in n_split_arr:
         theta_arr_amin[n_split] = {}
         for idx in range(n_split):
-            theta_arr_amin[n_split][idx] = {}
+            x_plot[n_split][idx] = {}
             for sh in shapes:
-                theta_arr_amin[n_split][idx][sh] = (
+                if not physical:
+                    # scales in arcmin
+                    x = ng[n_split][idx][sh].meanr
+                else:
+                    x = ng[n_split][idx][sh].r_nom
+
+                x_plot[n_split][idx][sh] = (
                     np.geomspace(
-                        ng[n_split][idx][sh].meanr[0] / f_theta_pl,
-                        ng[n_split][idx][sh].meanr[-1] * f_theta_pl,
+                        x[0] / f_theta_pl,
+                        x[-1] * f_theta_pl,
                         num=n_theta_pl
                     )
                 )
 
-    return theta_arr_amin
+    return x_plot
+
 
 def do_minimize(idx, loss, fit_params, args):
     """Do Minimize.
@@ -462,7 +508,16 @@ def fit(args, fit_params, n_cpu, verbose):
     return res_arr
 
 
-def retrieve_best_fit(res_arr, args, theta_arr_amin, n_split_arr, shapes, blinds, par_name):
+def retrieve_best_fit(
+    res_arr,
+    args,
+    theta_arr_amin,
+    n_split_arr,
+    shapes,
+    blinds,
+    par_name,
+    physical,
+):
     # Retrieve best-fit results and models
 
     par_bf = {}
@@ -498,10 +553,16 @@ def retrieve_best_fit(res_arr, args, theta_arr_amin, n_split_arr, shapes, blinds
                         + f' {par_name} = {p_dp:.2ugP}'
                     )
 
-                    theta_arr_deg = theta_arr_amin[n_split][idx][sh] / 60
+                    if not physical:
+                        # arcmin -> deg
+                        x = x_plot[n_split][idx][sh] / 60
+                    else:
+                        # Mpc
+                        x = x_plot[n_split][idx][sh]
+
                     extra = args[jdx][3]
                     g_t[n_split][idx][sh][blind] = g_t_model(
-                        res_arr[jdx].params, theta_arr_deg, extra
+                        res_arr[jdx].params, x, extra
                     )
 
                     jdx += 1
@@ -511,23 +572,31 @@ def retrieve_best_fit(res_arr, args, theta_arr_amin, n_split_arr, shapes, blinds
 
 def plot_data_with_fits(
     ng,
-    theta_min_fit_amin,
-    theta_max_fit_amin,
+    theta_min_fit,
+    theta_max_fit,
     g_t,
-    theta_arr_amin,
+    x_plot,
     par_bf,
     par_name_latex,
-    sep_units,
     n_split_arr,
     weight,
     shapes,
     blinds,
+    physical,
 ):
-    # Plot results
+    """Plot results.
+
+    """
+    if not physical:
+        xlab = r'\theta'
+        sep_units = 'arcmin'
+    else:
+        xlab = 'r'
+        sep_units = 'Mpc'
 
     fac = 1.05
-    xlabel = rf'$\theta$ [{sep_units}]'
-    ylabel = r'$\gamma_{\rm t, \times}(\theta)$'
+    xlabel = rf'${xlab}$ [{sep_units}]'
+    ylabel = r'$\gamma_{\rm t, \times}({xlab})$'
     labels = [r'$\gamma_{\rm t}$', r'$\gamma_\times$', 'model']
     colors = ['g', 'g', 'g', 'b', 'b', 'b', 'r', 'r', 'r']
     eb_linestyles = ['-', ':', '', '-', ':', '', '-', ':', '']
@@ -546,11 +615,16 @@ def plot_data_with_fits(
                 my_fac = 1 / fac
                 for idx in range(n_split):
 
-                    x.append(ng[n_split][idx][sh].meanr * my_fac)
+                    if not physical:
+                        this_x = ng[n_split][idx][sh].meanr
+                    else:
+                        this_x = ng[n_split][idx][sh].r_nom
+
+                    x.append(this_x * my_fac)
                     my_fac *= fac
-                    x.append(ng[n_split][idx][sh].meanr * my_fac)
+                    x.append(this_x * my_fac)
                     my_fac *= fac
-                    x.append(theta_arr_amin[n_split][idx][sh])
+                    x.append(x_plot[n_split][idx][sh])
 
                     y.append(ng[n_split][idx][sh].xi)
                     y.append(ng[n_split][idx][sh].xi_im)
@@ -577,8 +651,8 @@ def plot_data_with_fits(
                         + f'_{blind}_{weight}_{ystr}.pdf'
                     )
                     plots.figure(figsize=(15, 10))
-                    plt.axvline(x=theta_min_fit_amin, linestyle='--')
-                    plt.axvline(x=theta_max_fit_amin, linestyle='--')
+                    plt.axvline(x=theta_min_fit, linestyle='--')
+                    plt.axvline(x=theta_max_fit, linestyle='--')
                     plots.plot_data_1d(
                         x,
                         y,
@@ -692,23 +766,6 @@ def plot_M_BH_M_halo(
         plots.savefig(f'logM_BH_log_Mmin_n_split_{n_split}_{weight}.png')
 
 
-def set_up_cosmo():
-
-
-    ccl.spline_params.ELL_MAX_CORR = 500_000
-    ccl.spline_params.N_ELL_CORR = 5_000
-
-    cosmo = ccl.Cosmology(
-            Omega_c=0.27,
-            Omega_b=0.045,
-            h=0.67,
-            sigma8=0.83,
-            n_s=0.96,
-    )
-
-    return cosmo
-
-
 def main(argv=None):
     """MAIN.
 
@@ -726,11 +783,9 @@ def main(argv=None):
     # Save calling command
     logging.log_command(argv)
 
-    cosmo = set_up_cosmo()
+    cosmo = defaults.get_cosmo_default()
 
     plt.rcParams['font.size'] = 18
-
-    sep_units = 'arcmin'
 
     weight = params['weight']
     shapes = ['SP', 'LF']
@@ -755,14 +810,15 @@ def main(argv=None):
 
     args = set_args_minimizer(
         ng,
-        params['theta_min_fit_amin'],
-        params['theta_max_fit_amin'],
+        params['theta_min_fit'],
+        params['theta_max_fit'],
         cosmo,
         z_centers,
         nz,
         n_split_arr,
         shapes,
         blinds,
+        params['physical'],
     )
 
     # Parameters to fit
@@ -782,33 +838,34 @@ def main(argv=None):
     res_arr = fit(args, fit_params, params['n_cpu'], params['verbose'])
 
     # Retrieve best-fit parameters, errors, and models
-    theta_arr_amin = get_scales_pl(ng, n_split_arr, shapes)
+    x_plot = get_scales_pl(ng, n_split_arr, shapes)
     par_bf, std_bf, g_t = retrieve_best_fit(
         res_arr,
         args,
-        theta_arr_amin,
+        x_plot,
         n_split_arr,
         shapes,
         blinds,
         par_name,
+        params['physical'],
     )
 
     if params['verbose']:
         print('Create plots...')
-    plot_data_only(ng, sep_units, n_split_arr, weight, shapes)
+    plot_data_only(ng, n_split_arr, weight, shapes, params['physical'])
     plot_data_with_fits(
         ng,
-        params['theta_min_fit_amin'],
-        params['theta_max_fit_amin'],
+        params['theta_min_fit'],
+        params['theta_max_fit'],
         g_t,
-        theta_arr_amin,
+        x_plot,
         par_bf,
         par_name_latex,
-        sep_units,
         n_split_arr,
         weight,
         shapes,
         blinds,
+        physical,
     )
     if params['model_type'] == 'hod':
         plot_M_BH_M_halo(
