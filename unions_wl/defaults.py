@@ -26,7 +26,7 @@ def get_cosmo_default():
     Returns
     -------
     Cosmology
-        pyccl cosmology objecy
+        pyccl cosmology object
 
     """
     cosmo = ccl.Cosmology(                                                      
