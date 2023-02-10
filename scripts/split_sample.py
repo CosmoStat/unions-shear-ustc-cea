@@ -14,6 +14,9 @@ import sys
 import os
 
 import numpy as np
+from scipy import interpolate
+
+from tqdm import tqdm
 
 from optparse import OptionParser
 import matplotlib.pylab as plt
@@ -24,11 +27,13 @@ from astropy.table import Table
 from astropy.io import fits
 
 from unions_wl import catalogue as wl_cat
+from unions_wl import defaults
 
 from cs_util import logging
 from cs_util import calc
 from cs_util import plots
 from cs_util import cat as cs_cat
+from cs_util import cosmo as cs_cosmo
 
 
 def params_default():
@@ -59,6 +64,8 @@ def params_default():
         'n_split': 2,
         'idx_ref': None,
         'n_bin_z_hist': 100,
+        'Delta_Sigma' : False,
+        'dndz_source_path' : None,
         'output_dir': '.',
         'output_fname_base': 'agn',
     }
@@ -71,6 +78,7 @@ def params_default():
         'n_split': 'int',
         'idx_ref': 'int',
         'n_bin_z_hist': 'int',
+        'Delta_Sigma': 'bool',
     }
 
     # Parameters which can be specified as command line option
@@ -88,6 +96,10 @@ def params_default():
             'bin index for reference redshift histogram, default none'
             + ' (flat weighted histograms)'
         ),
+        'Delta_Sigma' : 'multiply weights with inverse square of the'
+            + ' effective critical surface mass density, default={}',
+        'dndz_source_path' : 'path to source redshift histogram, used if'
+            + ' Delta_Sigma=True, default={}',
         'n_bin_z_hist': 'number of bins for redshift histogram, default={}',
         'output_dir': 'output directory, default={}',
         'output_fname_base': 'output file base name, default={}',
@@ -135,14 +147,24 @@ def parse_options(p_def, short_options, types, help_strings):
             else:
                 typ = 'string'
 
-            parser.add_option(
-                short,
-                f'--{key}',
-                dest=key,
-                type=typ,
-                default=p_def[key],
-                help=help_strings[key].format(p_def[key]),
-            )
+            if typ == 'bool':
+                parser.add_option(
+                    f'{short}',
+                    f'--{key}',
+                    dest=key,
+                    default=False,
+                    action='store_true',
+                    help=help_strings[key].format(p_def[key]),
+                )
+            else:
+                parser.add_option(
+                    short,
+                    f'--{key}',
+                    dest=key,
+                    type=typ,
+                    default=p_def[key],
+                    help=help_strings[key].format(p_def[key]),
+                )
 
     parser.add_option(
         '-v',
@@ -155,6 +177,33 @@ def parse_options(p_def, short_options, types, help_strings):
     options, args = parser.parse_args()
 
     return options
+
+
+def check_options(options):
+    """Check command line options.
+
+    Parameters
+    ----------
+    options: tuple
+        Command line options
+
+    Returns
+    -------
+    bool
+        Result of option check. False if invalid option value.
+
+    """
+
+    # Delta_Sigma XOR dndz_source_path is invalid
+    if not (options['Delta_Sigma'] ^ (options['dndz_source_path'] is None)):
+        print(
+            'Both or neither Delta_Sigma=True and dndz_source_path are'
+            + ' required'
+        )
+        return False
+
+    return True
+
 
 
 def write_mean_std_logM(
@@ -173,7 +222,7 @@ def write_mean_std_logM(
     """
     out_name = (
         f'{output_dir}/mean_{key_logM}_n_split_{n_split}{weigh_suffix}.txt'
-    ) 
+    )
     with open(out_name, 'w') as f_out:
         print( f'# idx mean({key_logM}) std({key_logM})', file=f_out)
         for idx, _ in enumerate(mask_list):
@@ -193,6 +242,10 @@ def main(argv=None):
     for key in vars(options):
         params[key] = getattr(options, key)
 
+    # Check whether options are valid
+    if not check_options(params):
+        return 1
+
     # Save calling command
     logging.log_command(argv)
 
@@ -205,7 +258,6 @@ def main(argv=None):
     dat = {}
     for key in dat_fits.dtype.names:
         dat[key] = dat_fits[key]
-    #dat = dat_fits
 
     # To split into more equi-populated bins, compute cumulative
     # distribution function
@@ -213,47 +265,29 @@ def main(argv=None):
         print(f'Computing cdf({params["key_logM"]})...')
 
     # Cut in mass if required
-    if params['logM_min']:
-        if params['verbose']:
-            print(f'Using minumum logM = {params["logM_min"]}')
-        n_all = len(dat)
-        w = dat[params['key_logM']] > params['logM_min']
-        for key in dat:
-            dat[key] = dat[key][w]
-        n_cut = len(dat)
-        if params['verbose']:
-            print(
-                f'Removed {n_all - n_cut}/{n_all} objects below minimum mass'
-            )
+    dat = wl_cat.cut_data(
+        dat,
+        params['key_logM'],
+        params['logM_min'],
+        '>',
+        verbose=params['verbose']
+    )
 
     # Cut in redshift if required
-    if params['z_min'] is not None:
-        if params['verbose']:
-            print(f'Using minumum z = {params["z_min"]}')
-        n_all = len(dat)
-        w = dat[params['key_z']] > params['z_min']
-        for key in dat:
-            dat[key] = dat[key][w]
-        n_cut = len(dat)
-        if params['verbose']:
-            print(
-                f'Removed {n_all - n_cut}/{n_all} objects below'
-                + ' minimum redshift'
-            )
-
-    if params['z_max']:
-        if params['verbose']:
-            print(f'Using maximum z = {params["z_max"]}')
-        n_all = len(dat)
-        w = dat[params['key_z']] < params['z_max']
-        for key in dat:
-            dat[key] = dat[key][w]
-        n_cut = len(dat)
-        if params['verbose']:
-            print(
-                f'Removed {n_all - n_cut}/{n_all} objects above'
-                + ' maximum redshift'
-            )
+    dat = wl_cat.cut_data(
+        dat,
+        params['key_z'],
+        params['z_min'],
+        '>',
+        verbose=params['verbose']
+    )
+    dat = wl_cat.cut_data(
+        dat,
+        params['key_z'],
+        params['z_max'],
+        '<',
+        verbose=params['verbose']
+    )
 
     # Get cumulative distribution function in log-mass
     cdf = ECDF(dat[params['key_logM']])
@@ -310,17 +344,6 @@ def main(argv=None):
         out_name,
     )
 
-    # Write unweighted logM summaries to file
-    write_mean_std_logM(
-        params['output_dir'],
-        params['key_logM'],
-        params['n_split'],
-        '_u',
-        mask_list,
-        means_logM,
-        stds_logM,
-    )
-
     # Add columns for weight for each sample
     for idx in range(len(mask_list)):
         dat[f'w_{idx}'] = np.ones_like(dat[params['key_z']])
@@ -361,12 +384,73 @@ def main(argv=None):
                 print('Error:', z)
             else:
                 idh = w[-1]
+
+            # Set weight to inverse redshift distribution density
             weights[idz] = 1 / z_hist[idh]
 
+            # If required multiply weight by reference
+            # redshift distribution density
             if params['idx_ref'] is not None:
                 weights[idz] *= z_hist_arr[params['idx_ref']][idh]
 
         dat[f'w_{idx}'][mask] = weights
+
+
+    # If required multiply weights by inverse square of effective
+    # critical surface mass density
+    if params['Delta_Sigma']:
+
+        cosmo = defaults.get_cosmo_default()
+
+        # Source redshift distribution and distances
+        z_source, nz_source, _ = wl_cat.read_dndz(params['dndz_source_path'])
+        a_source = 1 / (1 + z_source)
+        d_ang_source = cosmo.angular_diameter_distance(a_source)
+
+        # Create spline interpolation function
+        nz_source_interp = interpolate.InterpolatedUnivariateSpline(z_source, nz_source)
+        d_ang_source_interp = interpolate.InterpolatedUnivariateSpline(z_source, d_ang_source)
+
+        # Rebin source to lower number to speed up Sigma_cr computation
+        n_z_source_rebin = 25
+        z_source_rebin = np.linspace(z_source[0], z_source[-1], n_z_source_rebin)
+        nz_source_rebin = nz_source_interp(z_source_rebin)
+        d_ang_source_rebin = d_ang_source_interp(z_source_rebin)
+
+        # Loop over lens selections
+        for idx, mask in enumerate(mask_list):
+
+            n_z_lens = 25
+            z_lens = np.linspace(z_min, z_max, n_z_lens)
+            a_lens = 1 / (1 + z_lens)
+            d_ang_lens = cosmo.angular_diameter_distance(a_lens)
+            d_ang_lens_interp = interpolate.InterpolatedUnivariateSpline(z_lens, d_ang_lens)
+
+            sig_cr_w = np.ones_like(dat[params['key_z']][mask])
+
+            # Loop over lens objects
+            for idz, z in tqdm(
+                enumerate(dat[params['key_z']][mask]),
+                total=len(dat[params['key_z']][mask]),
+                disable=not params['verbose'],
+                desc=f'split {idx}/{params["n_split"]}',
+            ):
+                #a_lens = 1 / (1 + z)
+                #d_ang_lens = cosmo.angular_diameter_distance(a_lens)
+                d_ang_lens_spline = d_ang_lens_interp(z)
+                sig_crit_m1_eff = cs_cosmo.sigma_crit_m1_eff(
+                    z,
+                    z_source_rebin,
+                    nz_source_rebin,
+                    cosmo,
+                    d_lens=d_ang_lens_spline,
+                    d_source_arr=d_ang_source_rebin,
+                )
+
+                sig_cr_w[idz] = sig_crit_m1_eff.value ** 2
+
+            # Apply weights
+            dat[f'w_{idx}'][mask] = dat[f'w_{idx}'][mask] * sig_cr_w
 
     # Plot original redshift histograms
     out_name = (
@@ -485,16 +569,21 @@ def main(argv=None):
         density=True,
     )
 
-    # Write weighted logM summaries to file
-    write_mean_std_logM(
-        params['output_dir'],
-        params['key_logM'],
-        params['n_split'],
-        '_w',
-        mask_list,
-        means_logM_w,
-        stds_logM_w
-    )
+    # Write unweighted and weighted logM summaries to file
+    for suf, mean, std in zip(
+        ['_u', '_w'],
+        [means_logM, means_logM_w],
+        [stds_logM, stds_logM_w]
+    ):
+        write_mean_std_logM(
+            params['output_dir'],
+            params['key_logM'],
+            params['n_split'],
+            suf,
+            mask_list,
+            mean,
+            std,
+        )
 
     dat_mask = {}
     for idx, mask in enumerate(mask_list):

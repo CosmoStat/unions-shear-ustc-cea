@@ -173,35 +173,11 @@ def main(argv=None):
     ra = dat[params['key_ra']]
     dec = dat[params['key_dec']]
 
-    # Open input mask
-    if params['verbose']:
-        print(f'Reading mask {params["input_mask"]}...')
-    nest = False
-    mask, header= hp.read_map(
+    # Read input mask
+    mask, nest, nside = wl_cat.read_hp_mask(
         params['input_mask'],
-        h=True,
-        nest=nest,
+        verbose=params['verbose']
     )
-    for (key, value) in header:
-        if key == 'ORDERING':
-            if value == 'RING':
-                if nest:
-                    raise ValueError(
-                        'input mask has ORDENING=RING, set nest to False'
-                    )
-            elif value == 'NEST':
-                if not nest:
-                    raise ValueError(
-                        'input mask has ORDENING=NEST, set nest to True'
-                    )
-
-    # Get nside from header
-    nside = None
-    for key, value in header:
-        if key == 'NSIDE':
-            nside = int(value)
-    if not nside:
-        raise KeyError('NSIDE not found in FITS mask header')
 
     # Get mask pixel numbers of coordinates
     ipix = hp.ang2pix(nside, ra, dec, nest=nest, lonlat=True)
@@ -254,18 +230,6 @@ def main(argv=None):
         )
         plt.savefig(out_path_plot)                                    
         plt.close() 
-
-        # For testing plot coordinates in footprint
-        fig, (ax) = plt.subplots(1, 1)
-        w_pos = dat_in_footprint['RA'] > 0
-        ax.plot(dat_in_footprint['RA'][w_pos], dat_in_footprint['dec'][w_pos], '.')
-        w_neg = dat_in_footprint['RA'] < 0
-        ax.plot(dat_in_footprint['RA'][w_neg]+360, dat_in_footprint['dec'][w_neg], '.')
-        ax.invert_xaxis()
-        ax.set_xlabel('R.A. [deg]')
-        ax.set_xlabel('Dec [deg]')
-        plt.savefig('radec_in_footprint.png')
-        plt.close()
 
     return 0
 
