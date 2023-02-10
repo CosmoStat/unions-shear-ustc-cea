@@ -1,3 +1,11 @@
+#!/home/ustc/anaconda3/bin/python3
+# -*- coding: utf-8 -*-
+"""
+This script is for measuring lensing signal with TreeCorr module in angular scale. 
+
+:Author: Qinxun Li <liqinxun@mail.ustc.edu.cn>
+:Date: 2023
+"""
 from astropy.io import fits
 import matplotlib.pyplot as plt
 import numpy as np

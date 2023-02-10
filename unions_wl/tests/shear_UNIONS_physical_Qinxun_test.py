@@ -1,4 +1,11 @@
+#!/home/ustc/anaconda3/bin/python3
+# -*- coding: utf-8 -*-
+"""
+This script is for measuring lensing signal in physical scale. split_UNIONS.py is necessary for this code because it create the splited shape catalog.
 
+:Author: Ao Wang & Qinxun Li <liqinxun@mail.ustc.edu.cn>
+:Date: 2023
+"""
 from astropy.io import fits
 import matplotlib.pyplot as plt
 import numpy as np
