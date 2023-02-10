@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-
 """THEORY MODULE.
 
 :Description: This module provides theoretical predictions of
@@ -11,10 +9,6 @@
 
 import numpy as np
 
-import time
-
-from scipy.special import erf
-
 from astropy import units
 
 import pyccl as ccl
@@ -22,6 +16,8 @@ import pyccl as ccl
 from pyccl.core import Cosmology
 import pyccl.nl_pt as pt
 import pyccl.ccllib as lib
+
+import cs_util.cosmo
 
 
 def pk_gm_theo(
@@ -274,6 +270,7 @@ def gamma_t_theo_phys(
         pk_gm_info,
         ell=None,
         integr_method='FFTlog',
+        Delta_Sigma=False,
 ):
     """GAMMA T THEO.
 
@@ -301,11 +298,14 @@ def gamma_t_theo_phys(
     integr_method : str, optional
         Method of integration over the Bessel function times
         the angular power spectrum, default is 'FFT_log'
+    Delta_Sigma : bool, optional
+        Return excess surface mass density (ESD) if `True`;
+        default is `False`
 
     Returns
     -------
     array :
-        Tangential shear at input scales
+        Tangential shear or excess surface mass density at input scales
 
     """
     z_lens = dndz_lens[0]
@@ -347,7 +347,7 @@ def gamma_t_theo_phys(
 
     # Galaxies (lenses)
 
-    gt = []
+    y = []
     n_sub = 20
     if len(z_lens) % n_sub != 0:
         raise ValueError('n_sub is not divider of #nz_lens')
@@ -379,7 +379,7 @@ def gamma_t_theo_phys(
         theta_deg = theta_rad.to('degree')
 
         # Tangential shear
-        gt_sub = ccl.correlation(
+        y_sub = ccl.correlation(
             cosmo,
             ell,
             cls_gG_sub,
@@ -388,19 +388,30 @@ def gamma_t_theo_phys(
             method=integr_method,
         )
 
+        if Delta_Sigma:
+            sigma_cr_m1_eff = cs_util.cosmo.sigma_crit_m1_eff(
+                np.mean(z_lens_sub[idx]),
+                dndz_source[0],
+                dndz_source[1],
+                cosmo,
+                d_lens=d_ang,
+            )
+            # Delta Sigma = gamma_t * (1 / Sigma_eff^{-1})
+            # Since Sigma_cr(z_s, z_l) diverges for z_s -> z_l,
+            # the term gamma_t * Sigma_cr is disfavoured
+            y_sub *= 1 / sigma_cr_m1_eff.value
+
         # Mean n(z) of sub-slice
         nz_lens_mean_sub.append(np.mean(nz_lens_sub[idx]))
 
-        gt.append(gt_sub * nz_lens_mean_sub[idx])
+        y.append(y_sub * nz_lens_mean_sub[idx])
 
-    gt_tot = np.mean(gt, axis=0)
-
-    # MKDEBUG: Normalising by n(z) in each slice seems to bias
+    # MKDEBUG: Check normalising, by n(z) in each slice seems to bias
     # <g_t> low...
-    #gt_tot = np.average(gt, axis=0, weights=nz_lens_mean_sub)
-    #gt_tot = np.sum(gt, axis=0) / np.sum(nz_lens_mean_sub)
+    #y_tot = np.average(y, axis=0, weights=nz_lens_mean_sub)
+    y_tot = np.mean(y, axis=0)
 
-    return gt_tot
+    return y_tot
 
 
 def pk_gm_theo_IA(cosmo, bias_1, dndz_lens, a_1_IA = 1.,log10k_min=-4, log10k_max=2, nk_per_decade=20):
@@ -512,6 +523,7 @@ def C_ell_pw(
         C_ell.append(ccl.angular_cl(cosmo_ccl_1_bin, t_g_1_bin, t_l_1_bin, ell_1_bin_1, p_of_k_a=pk_gm_1_bin))
         return C_ell
 
+
 def gamma_t_theo_pw(
         theta_deg,
         cosmo,
@@ -597,7 +609,9 @@ def gamma_t_theo_pw(
     g_t_tot_1 = np.sum(g_t_1_bin_1, axis = 0)/count
 
     g_t_tot_weight_1 = np.average(g_t_1_bin_1, axis = 0, weights = n_z_l_eff)
+
     return g_t_tot_1
+
 
 def gamma_t_ia_theo(
     theta_deg,
