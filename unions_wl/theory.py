@@ -150,6 +150,66 @@ def pk_gm_theo_hod(
     return pk_gm
 
 
+def g_t_model(params, x_data, extra):
+    """G_T_Model.
+
+    Tangential shear model. Can be called from loss function for fitting.
+
+    Parameters
+    ----------
+    params : lmfit.Parameters
+        fit parameters
+    x_data : numpy.array
+        x-values of the data (angular scales in deg)
+    extra : dict
+        additional parameters
+
+    Returns
+    -------
+    numpy.array
+        y-values of the model (tangential shear)
+
+    """
+    cosmo = extra['cosmo']
+
+    z_centers = {}
+    nz = {}
+    for sample in ('source', 'lens'):
+        z_centers[sample] = extra[f'z_centers_{sample}']
+        nz[sample] = extra[f'nz_{sample}']
+
+    # Set up model for 3D galaxy-matter power spectrum
+    pk_gm_info = {}
+    if 'bias_1' in params:
+        pk_gm_info['model_type'] = 'linear_bias'
+        pk_gm_info['bias_1'] = params['bias_1']
+    else:
+        pk_gm_info['model_type'] = 'HOD'
+        pk_gm_info['log10_Mmin'] = params['log10_Mmin']
+
+    if not extra['physical']:
+        y_model, _, _ = gamma_t_theo(
+            x_data,
+            cosmo,
+            (z_centers['lens'], nz['lens']),
+            (z_centers['source'], nz['source']),
+            pk_gm_info,
+            integr_method='FFTlog',
+        )
+    else:
+        y_model = gamma_t_theo_phys(
+            x_data,
+            cosmo,
+            (z_centers['lens'], nz['lens']),
+            (z_centers['source'], nz['source']),
+            pk_gm_info,
+            integr_method='FFTlog',
+            Delta_Sigma=False,
+        )
+
+    return y_model
+
+
 def gamma_t_theo(
         theta_deg,
         cosmo,
@@ -302,9 +362,14 @@ def gamma_t_theo_phys(
         Return excess surface mass density (ESD) if `True`;
         default is `False`
 
+    Raises
+    ------
+    ValueError
+        
+
     Returns
     -------
-    array :
+    array
         Tangential shear or excess surface mass density at input scales
 
     """
@@ -349,11 +414,13 @@ def gamma_t_theo_phys(
 
     y = []
     n_sub = 20
-    if len(z_lens) % n_sub != 0:
-        raise ValueError('n_sub is not divider of #nz_lens')
-    z_lens_sub = np.split(z_lens, n_sub)
-    nz_lens_sub = np.split(nz_lens, n_sub)
-    bias_g_sub = np.split(bias_g, n_sub)
+    #if len(z_lens) % n_sub != 0:
+        #raise ValueError(
+            #f'n_sub={n_sub} is not divider of #nz_lens={len(z_lens)}'
+        #)
+    z_lens_sub = np.array_split(z_lens, n_sub)
+    nz_lens_sub = np.array_split(nz_lens, n_sub)
+    bias_g_sub = np.array_split(bias_g, n_sub)
 
     nz_lens_mean_sub = []
     for idx in range(len(z_lens_sub)):

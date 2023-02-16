@@ -11,7 +11,6 @@ Fit GGL models to (previously computed) ng correlation.
 import sys
 
 import numpy as np
-from joblib import Parallel, delayed
 
 from uncertainties import ufloat
 import matplotlib.pyplot as plt
@@ -21,11 +20,12 @@ from astropy.io import ascii
 from optparse import OptionParser
 
 import pyccl as ccl
-from lmfit import minimize, Parameters, fit_report
+from lmfit import minimize, Parameters
 
 from unions_wl import theory
 from unions_wl import catalogue as cat
 from unions_wl import defaults
+from unions_wl import fit
 
 from cs_util import plots
 from cs_util import logging
@@ -63,7 +63,7 @@ def params_default():
     # Parameters which are not the default, which is ``str``
     types = {
         'theta_min_fit': 'float',
-        'theta_min_fit': 'float',
+        'theta_max_fit': 'float',
         'n_split_max': 'int',
         'n_cpu': 'int',
         'physical': 'bool',
@@ -247,7 +247,7 @@ def plot_data_only(ng, n_split_arr, weight, shapes, physical):
     fac = 1.05
     pow_idx = 0.8
     xlabel = rf'${xlab}$ [{sep_units}]'
-    ylabel = rf'$(\theta/${sep_unit}$)^{pow_idx} \gamma_{{\rm t}}({xlab})$'
+    ylabel = rf'$(\theta/${sep_units}$)^{pow_idx} \gamma_{{\rm t}}({xlab})$'
     colors = {
         'SP': 'r',
         'LF': 'b',
@@ -268,7 +268,7 @@ def plot_data_only(ng, n_split_arr, weight, shapes, physical):
                 if not physical:
                     this_x = ng[n_split][idx][sh].meanr
                 else:
-                    this_x = ng[n_split][idx][sh].r_nom
+                    this_x = ng[n_split][idx][sh].rnom
 
                 x.append(this_x * my_fac)
                 my_fac *= fac
@@ -297,97 +297,6 @@ def plot_data_only(ng, n_split_arr, weight, shapes, physical):
             linestyles=ls,
             eb_linestyles=eb_ls,
         )
-
-
-def g_t_model(params, x_data, extra):
-    """G_T_Model.
-
-    Tangential shear model
-
-    Parameters
-    ----------
-    params : lmfit.Parameters
-        fit parameters
-    x_data : numpy.array
-        x-values of the data (angular scales in deg)
-    extra : dict
-        additional parameters
-
-    Returns
-    -------
-    numpy.array
-        y-values of the model (tangential shear)
-
-    """
-    cosmo = extra['cosmo']
-
-    z_centers = {}
-    nz = {}
-    for sample in ('source', 'lens'):
-        z_centers[sample] = extra[f'z_centers_{sample}']
-        nz[sample] = extra[f'nz_{sample}']
-
-    # Set up model for 3D galaxy-matter power spectrum
-    pk_gm_info = {}
-    if 'bias_1' in params:
-        pk_gm_info['model_type'] = 'linear_bias'
-        pk_gm_info['bias_1'] = params['bias_1']
-    else:
-        pk_gm_info['model_type'] = 'HOD'
-        pk_gm_info['log10_Mmin'] = params['log10_Mmin']
-
-    if not extra['physical']:
-        y_model, _, _ = theory.gamma_t_theo(
-            x_data,
-            cosmo,
-            (z_centers['lens'], nz['lens']),
-            (z_centers['source'], nz['source']),
-            pk_gm_info,
-            integr_method='FFTlog',
-        )
-    else:
-        y_model, _, _ = theory.gamma_t_theo_phys(
-            x_data,
-            cosmo,
-            (z_centers['lens'], nz['lens']),
-            (z_centers['source'], nz['source']),
-            pk_gm_info,
-            integr_method='FFTlog',
-            Delta_Sigma=False,
-        )
-
-    return y_model
-
-
-def loss(params, x_data, y_data, err, extra):
-    """Loss function
-
-    Loss function for tangential shear fit
-
-    Parameters
-    ----------
-    params : lmfit.Parameters
-        fit parameters
-    x_data : numpy.array
-        x-values of the data
-    y_data : numpy.array
-        y-values of the data
-    err : numpy.array
-        error values of the data
-    extra : dict
-        additional parameters
-
-    Returns
-    -------
-    numpy.array
-        residuals
-
-    """
-    y_model = g_t_model(params, x_data, extra)
-
-    residuals = (y_model - y_data) / err
-
-    return residuals
 
 
 def set_args_minimizer(
@@ -428,7 +337,7 @@ def set_args_minimizer(
                         x = ng[n_split][idx][sh].meanr
                     else:
                         # in Mpc
-                        x = ng[n_split][idx][sh].r_nom
+                        x = ng[n_split][idx][sh].rnom
 
                     y = ng[n_split][idx][sh].xi
                     err = np.sqrt(ng[n_split][idx][sh].varxi)
@@ -440,6 +349,10 @@ def set_args_minimizer(
                     if not physical:
                         # transform from arcmin to deg 
                         x_w = x_w / 60
+                    else:
+                        # Error computation not yet implemented
+                        print('MKDEBUG no error bars yet!')
+                        err = y / 5
                     gt = y[w]
                     dgt = err[w]
 
@@ -448,7 +361,7 @@ def set_args_minimizer(
     return args
 
 
-def get_scales_pl(ng, n_split_arr, shapes):
+def get_scales_pl(ng, n_split_arr, shapes, physical):
 
     # Parameters to plot angular scales for theoretical prediction
     f_theta_pl = 1.1
@@ -456,7 +369,7 @@ def get_scales_pl(ng, n_split_arr, shapes):
 
     x_plot = {}
     for n_split in n_split_arr:
-        theta_arr_amin[n_split] = {}
+        x_plot[n_split] = {}
         for idx in range(n_split):
             x_plot[n_split][idx] = {}
             for sh in shapes:
@@ -464,7 +377,7 @@ def get_scales_pl(ng, n_split_arr, shapes):
                     # scales in arcmin
                     x = ng[n_split][idx][sh].meanr
                 else:
-                    x = ng[n_split][idx][sh].r_nom
+                    x = ng[n_split][idx][sh].rnom
 
                 x_plot[n_split][idx][sh] = (
                     np.geomspace(
@@ -477,41 +390,10 @@ def get_scales_pl(ng, n_split_arr, shapes):
     return x_plot
 
 
-def do_minimize(idx, loss, fit_params, args):
-    """Do Minimize.
-
-    Call minimize for task `idx`, and return result.
-    Can be called with `Parallel` with `idx` as iterating index.
-
-    """
-    return minimize(loss, fit_params, args=args[idx])
-
-
-def fit(args, fit_params, n_cpu, verbose):
-
-    # Number of jobs to do
-    n_fit = len(args)
-
-    if verbose:
-        print(f'Fit {n_fit} models on {n_cpu} CPUs...')
-
-    # Fit models in parallel
-    res_arr = Parallel(n_jobs=n_cpu, verbose=13)(
-        delayed(do_minimize)(
-            idx,
-            loss,
-            fit_params,
-            args
-        ) for idx in range(n_fit)
-    )
-
-    return res_arr
-
-
 def retrieve_best_fit(
     res_arr,
     args,
-    theta_arr_amin,
+    x_plot,
     n_split_arr,
     shapes,
     blinds,
@@ -561,7 +443,7 @@ def retrieve_best_fit(
                         x = x_plot[n_split][idx][sh]
 
                     extra = args[jdx][3]
-                    g_t[n_split][idx][sh][blind] = g_t_model(
+                    g_t[n_split][idx][sh][blind] = theory.g_t_model(
                         res_arr[jdx].params, x, extra
                     )
 
@@ -618,7 +500,7 @@ def plot_data_with_fits(
                     if not physical:
                         this_x = ng[n_split][idx][sh].meanr
                     else:
-                        this_x = ng[n_split][idx][sh].r_nom
+                        this_x = ng[n_split][idx][sh].rnom
 
                     x.append(this_x * my_fac)
                     my_fac *= fac
@@ -835,10 +717,10 @@ def main(argv=None):
         raise ValueError(f'Invalid model type {params["model_type"]}')
 
     # Perform fits
-    res_arr = fit(args, fit_params, params['n_cpu'], params['verbose'])
+    res_arr = fit.fit(args, fit_params, params['n_cpu'], params['verbose'])
 
     # Retrieve best-fit parameters, errors, and models
-    x_plot = get_scales_pl(ng, n_split_arr, shapes)
+    x_plot = get_scales_pl(ng, n_split_arr, shapes, params['physical'])
     par_bf, std_bf, g_t = retrieve_best_fit(
         res_arr,
         args,
@@ -865,7 +747,7 @@ def main(argv=None):
         weight,
         shapes,
         blinds,
-        physical,
+        params['physical'],
     )
     if params['model_type'] == 'hod':
         plot_M_BH_M_halo(

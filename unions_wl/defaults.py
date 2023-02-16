@@ -9,13 +9,17 @@
 import pyccl as ccl
 
 
-# Set ell_max to large value, for spline interpolation (in integral over    
-# C_ell to get real-space correlation functions). Avoid aliasing            
-# (oscillations)                                                            
-ccl.spline_params.ELL_MAX_CORR = 10_000_000
-# was 500_000 in fit_all...
+def set_ccl_parameters():
+    """Set CCL Parameters.
 
-ccl.spline_params.N_ELL_CORR = 5_000
+    """
+    # Set ell_max to large value, for spline interpolation (in integral over    
+    # C_ell to get real-space correlation functions). Avoid aliasing            
+    # (oscillations)                                                            
+    ccl.spline_params.ELL_MAX_CORR = 10_000_000
+    # was 500_000 in fit_all...
+
+    ccl.spline_params.N_ELL_CORR = 5_000
 
 
 def get_cosmo_default():
@@ -36,5 +40,7 @@ def get_cosmo_default():
         sigma8=0.83,                                                            
         n_s=0.96,                                                               
     )
+
+    set_ccl_parameters()
 
     return cosmo
