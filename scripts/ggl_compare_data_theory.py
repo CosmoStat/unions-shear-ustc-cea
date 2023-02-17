@@ -204,7 +204,7 @@ def main(argv=None):
     plt.rcParams['font.size'] = 18
 
     # Default cosmology
-    cosmo = defaults.Cosmology()
+    cosmo = defaults.get_cosmo_default()
 
     # Read redshift distributions
     z_centers = {}
@@ -213,7 +213,7 @@ def main(argv=None):
         file_path = params[f'dndz_{sample}_path']
         z_centers[sample], nz[sample], _ = cat.read_dndz(file_path)
 
-    # Tangential shear
+    # Set up scales
 
     n_theta = 2000
     if not params['physical']:
@@ -286,18 +286,27 @@ def main(argv=None):
 
     fac = 1.05
 
-    x = [ng.meanr, ng.meanr * fac, x_data]
     y = [ng.xi, ng.xi_im, y_theo]
     dy = [np.sqrt(ng.varxi)] * 2 + [[]]
     title = 'GGL'
     if not params['physical']:
-        xlabel = rf'$\theta$ [arcmin]'
+        x = [ng.meanr, ng.meanr * fac]
+        xbase = r'\theta'
+        xlabel = rf'${xbase}$ [arcmin]'
     else:
-        xlabel = rf'$r$ [Mpc]'
-    ylabel = r'$\gamma_{\rm t}(\theta)$'
-    ls = ['', '', '-']
+        x = [ng.rnom, ng.rnom * fac]
+        xbase = r'r'
+        xlabel = rf'${xbase}$ [Mpc]'
+    x.append(x_data)
+    ylabel = rf'$\gamma_{{\rm t}}({xbase})$'
+    ls = ['-', '', '-']
+    eb_linestyles = ['-', ':', ':']
     labels = [r'$\gamma_{\rm t}$', r'$\gamma_\times$', 'model']
     colors = ['g', 'r', 'g']
+
+    xlim_fac = 1.5
+    xlim = (params['theta_min'] / xlim_fac, params['theta_max'] * xlim_fac)
+    ylim = (5e-6, 1e-2)
 
     for ymode, ystr in zip((False, True), ('lin', 'log')):
         out_path = f'{params["out_base"]}_{ystr}.pdf'
@@ -314,41 +323,10 @@ def main(argv=None):
             labels=labels,
             colors=colors,
             linestyles=ls,
+            eb_linestyles=eb_linestyles,
+            xlim=xlim,
+            ylim=ylim,
         )
-
-    x = [x_data]
-    y = [y_theo]
-    dy = [[]]
-    title = 'GGL'
-    if not params['physical']:
-        xlabel = rf'$\theta$ [arcmin]'
-    else:
-        xlabel = rf'$r$ [Mpc]'
-    if not params['Delta_Sigma']:
-        ylabel = r'$\gamma_{\rm t}(\theta)$'
-    else:
-        ylabel = r'$\Delta \Sigma(r)$ [$M_\odot$ / pc$^2$]'
-    ls = ['-']
-    labels = ['model']
-    colors = ['g']
-
-    for ymode, ystr in zip((False, True), ('lin', 'log')):
-        out_path = f'{params["out_base"]}_model_{ystr}.pdf'
-        plots.plot_data_1d(
-            x,
-            y,
-            dy,
-            title,
-            xlabel,
-            ylabel,
-            out_path,
-            xlog=True,
-            ylog=ymode,
-            labels=labels,
-            colors=colors,
-            linestyles=ls,
-        )
-
 
     return 0
 

@@ -238,16 +238,20 @@ def plot_data_only(ng, n_split_arr, weight, shapes, physical):
     
     """
     if not physical:
-        xlab = r'\theta'
+        xbase = r'\theta'
         sep_units = 'arcmin'
     else:
-        xlab = 'r'
+        xbase = 'r'
         sep_units = 'Mpc'
 
     fac = 1.05
-    pow_idx = 0.8
-    xlabel = rf'${xlab}$ [{sep_units}]'
-    ylabel = rf'$(\theta/${sep_units}$)^{pow_idx} \gamma_{{\rm t}}({xlab})$'
+    pow_idx = 1
+    xlabel = rf'${xbase}$ [{sep_units}]'
+    if pow_idx != 1:
+        spre = rf'(\theta/${sep_units}$)^{pow_idx}'
+    else:
+        spre = ''
+    ylabel = rf'${spre} \gamma_{{\rm t}}({xbase})$'
     colors = {
         'SP': 'r',
         'LF': 'b',
@@ -470,15 +474,15 @@ def plot_data_with_fits(
 
     """
     if not physical:
-        xlab = r'\theta'
+        xbase = r'\theta'
         sep_units = 'arcmin'
     else:
-        xlab = 'r'
+        xbase = 'r'
         sep_units = 'Mpc'
 
     fac = 1.05
-    xlabel = rf'${xlab}$ [{sep_units}]'
-    ylabel = r'$\gamma_{\rm t, \times}({xlab})$'
+    xlabel = rf'${xbase}$ [{sep_units}]'
+    ylabel = r'$\gamma_{\rm t, \times}({xbase})$'
     labels = [r'$\gamma_{\rm t}$', r'$\gamma_\times$', 'model']
     colors = ['g', 'g', 'g', 'b', 'b', 'b', 'r', 'r', 'r']
     eb_linestyles = ['-', ':', '', '-', ':', '', '-', ':', '']

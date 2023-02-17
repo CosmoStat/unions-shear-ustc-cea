@@ -413,7 +413,8 @@ def gamma_t_theo_phys(
     # Galaxies (lenses)
 
     y = []
-    n_sub = 20
+    #n_sub = 20
+    n_sub = 5
     #if len(z_lens) % n_sub != 0:
         #raise ValueError(
             #f'n_sub={n_sub} is not divider of #nz_lens={len(z_lens)}'
@@ -424,12 +425,19 @@ def gamma_t_theo_phys(
 
     nz_lens_mean_sub = []
     for idx in range(len(z_lens_sub)):
-        tracer_g_sub = ccl.NumberCountsTracer(
-            cosmo,
-            False,
-            dndz=(z_lens_sub[idx], nz_lens_sub[idx]),
-            bias=(z_lens_sub[idx], bias_g_sub[idx]),
-        )
+        # MKDEBUG: Sometimes an CCL SPLINE error occurs.
+        # If n_sub is too large?
+        try:
+            tracer_g_sub = ccl.NumberCountsTracer(
+                cosmo,
+                False,
+                dndz=(z_lens_sub[idx], nz_lens_sub[idx]),
+                bias=(z_lens_sub[idx], bias_g_sub[idx]),
+            )
+        except:
+            print('Error while creating ccl.NumberCountsTracer')
+            print(cosmo.cosmo.status_message)
+            raise
 
         cls_gG_sub = ccl.angular_cl(
             cosmo,
@@ -471,12 +479,13 @@ def gamma_t_theo_phys(
         # Mean n(z) of sub-slice
         nz_lens_mean_sub.append(np.mean(nz_lens_sub[idx]))
 
-        y.append(y_sub * nz_lens_mean_sub[idx])
+        #y.append(y_sub * nz_lens_mean_sub[idx])
+        y.append(y_sub)# * nz_lens_mean_sub[idx])
 
     # MKDEBUG: Check normalising, by n(z) in each slice seems to bias
     # <g_t> low...
-    #y_tot = np.average(y, axis=0, weights=nz_lens_mean_sub)
-    y_tot = np.mean(y, axis=0)
+    y_tot = np.average(y, axis=0, weights=nz_lens_mean_sub)
+    #y_tot = np.mean(y, axis=0)
 
     return y_tot
 
