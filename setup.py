@@ -60,7 +60,8 @@ def find_scripts():
 
     res = [
         os.path.join(sdir, val) for val in os.listdir(sdir) if
-            val.endswith('.py') and '__init__' not in val
+            (val.endswith('.py') or val.endswith('.sh'))
+            and '__init__' not in val
     ]
 
     return res

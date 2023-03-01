@@ -19,7 +19,7 @@ from optparse import OptionParser
 
 import numpy as np
 import math
-from scipy.interpolate import interp1d
+from scipy import interpolate
 
 from astropy.io import fits
 from astropy import units
@@ -27,8 +27,10 @@ from astropy import units
 import treecorr
 
 from unions_wl import defaults
+from unions_wl import catalogue as wl_cat
 
 from cs_util import logging
+from cs_util import cosmo as cs_cosmo
 
 
 class ng_essentials(object):
@@ -173,6 +175,8 @@ def params_default():
         'theta_max': 200,
         'n_theta': 10,
         'physical' : False,
+        'Delta_Sigma' : False,
+        'dndz_source_path' : None,
         'stack': 'auto',
         'out_path' : './ggl_unions_sdss_matched.txt',
         'n_cpu': 1,
@@ -184,6 +188,7 @@ def params_default():
         'sign_e1': 'int',
         'sign_e2': 'int',
         'physical': 'bool',
+        'Delta_Sigma': 'bool',
         'n_theta': 'int',
         'n_cpu': 'int',
     }
@@ -207,6 +212,10 @@ def params_default():
         'theta_max': 'maximum angular scale, default={}',
         'n_theta': 'number of angular scales, default={}',
         'physical' : '2D coordinates are physical [Mpc]',
+        'Delta_Sigma' : 'excess surface mass density instead of tangential'
+            + ' shear  default={}',
+        'dndz_source_path' : 'path to source redshift histogram, used if'
+            + ' Delta_Sigma=True, default={}',
         'stack' : 'allowed are auto, cross, post, default={}',
         'out_path' : 'output path, default={}',
         'n_cpu' : 'number of CPUs for parallel processing, default={}',
@@ -281,6 +290,35 @@ def parse_options(p_def, short_options, types, help_strings):
     options, args = parser.parse_args()
 
     return options
+
+
+def check_options(options):
+    """Check command line options.
+
+    Parameters
+    ----------
+    options: tuple
+        Command line options
+
+    Returns
+    -------
+    bool
+        Result of option check. False if invalid option value.
+
+    """
+    if options['Delta_Sigma'] and not options['physical']:
+        print('With Delta_Sigma=True physical needs to be True')
+        return False
+
+    # Delta_Sigma XOR dndz_source_path is invalid
+    if not (options['Delta_Sigma'] ^ (options['dndz_source_path'] is None)):
+        print(
+            'Both or neither Delta_Sigma=True and dndz_source_path are'
+            + ' required'
+        )
+        return False
+
+    return True
 
 
 def create_treecorr_catalogs(
@@ -364,7 +402,7 @@ def create_treecorr_catalogs(
 def rad_to_unit(value, unit):
 
     return (value * units.rad).to(unit).value
- 
+
 
 def unit_to_rad(value, unit):
 
@@ -469,7 +507,7 @@ def get_interp(x_new, x, y):
 def ng_stack(TreeCorrConfig, all_ng, all_d_ang, n_bin_fac=1):
 
     # Initialise combined correlation objects
-    ng_comb = treecorr.NGCorrelation(TreeCorrConfig)                 
+    ng_comb = treecorr.NGCorrelation(TreeCorrConfig)
 
     n_bins = len(ng_comb.rnom)
     sep_units = ng_comb.sep_units
@@ -500,7 +538,7 @@ def ng_stack(TreeCorrConfig, all_ng, all_d_ang, n_bin_fac=1):
     ng_comb.meanlogr = (np.exp(ng_comb.meanlogr) * units.rad).to(sep_units).value
     ng_comb.meanlogr = np.log(ng_comb.meanlogr)
 
-    return ng_comb 
+    return ng_comb
 
 
 def main(argv=None):
@@ -517,6 +555,9 @@ def main(argv=None):
     # Update parameter values
     for key in vars(options):
         params[key] = getattr(options, key)
+
+    if check_options(params) is False:
+        return 1
 
     # Save calling command
     logging.log_command(argv)
@@ -578,9 +619,61 @@ def main(argv=None):
         cosmo = defaults.get_cosmo_default()
         n_theta = params['n_theta'] * n_bin_fac
 
+        # Angular distances to all fg objects
+        #a_lens_arr = 1 / (1 + data['fg'][params['key_z']])
+        #d_ang_lens = cosmo.angular_diameter_distance(a_lens_arr)
+
+        n_z_lens = 25
+        fac = 1.0001
+        z_min = min(data['fg'][params['key_z']]) / fac
+        z_max = max(data['fg'][params['key_z']]) * fac
+        z_lens_arr = np.linspace(z_min, z_max, n_z_lens)
+        d_ang_lens = cosmo.angular_diameter_distance(z_lens_arr)
+        d_ang_lens_interp = interpolate.InterpolatedUnivariateSpline(z_lens_arr, d_ang_lens)
+
     else:
         cosmo = None
         n_theta = params['n_theta']
+
+    if params['Delta_Sigma']:
+        # Source redshift distribution and distances
+        z_source, nz_source, _ = wl_cat.read_dndz(params['dndz_source_path'])
+        a_source = 1 / (1 + z_source)
+        d_ang_source = cosmo.angular_diameter_distance(a_source)
+
+        # Create spline interpolation function
+        nz_source_interp = interpolate.InterpolatedUnivariateSpline(z_source, nz_source)
+        d_ang_source_interp = interpolate.InterpolatedUnivariateSpline(z_source, d_ang_source)
+
+        # Rebin source to lower number to speed up Sigma_cr computation
+        n_z_source_rebin = 25
+        z_source_rebin = np.linspace(z_source[0], z_source[-1], n_z_source_rebin)
+        nz_source_rebin = nz_source_interp(z_source_rebin)
+        d_ang_source_rebin = d_ang_source_interp(z_source_rebin)
+
+        sig_cr_w2 = np.ones_like(w['fg'])
+
+        # Loop over lens objects
+        for idz, z in tqdm(
+            enumerate(data['fg'][params['key_z']]),
+            total=len(data['fg'][params['key_z']]),
+            disable=not params['verbose'],
+        ):
+            d_ang_lens_spline = d_ang_lens_interp(z)
+            sig_crit_m1_eff = cs_cosmo.sigma_crit_m1_eff(
+                z,
+                z_source_rebin,
+                nz_source_rebin,
+                cosmo,
+                d_lens=d_ang_lens_spline,
+                d_source_arr=d_ang_source_rebin,
+            )
+
+            sig_cr_w2[idz] = sig_crit_m1_eff.value ** 2
+
+        # Apply weights
+        w['fg'] = w['fg'] * sig_cr_w2
+
 
     # Create treecorr catalogues
     for sample in ('fg', 'bg'):
@@ -608,18 +701,14 @@ def main(argv=None):
     sep_units = 'arcmin'
     if params['physical']:
 
-        # Angular distances to all objects
-        a_arr = 1 / (1 + data['fg'][params['key_z']]) 
-        d_ang = cosmo.angular_diameter_distance(a_arr)
-
         theta_min, theta_max = get_theta_min_max(
             params['theta_min'],
             params['theta_max'],
-            d_ang,
+            d_ang_lens,
             sep_units,
         )
     else:
-        d_ang = None
+        d_ang_lens = None
 
         theta_min = params['theta_min']
         theta_max = params['theta_max']
@@ -707,7 +796,7 @@ def main(argv=None):
         # and not cross stacking done
         if params['verbose']:
             print('Post-process (this script) stacking of fg objects')
-        ng = ng_stack(TreeCorrConfig, all_ng, d_ang, n_bin_fac=n_bin_fac)
+        ng = ng_stack(TreeCorrConfig, all_ng, d_ang_lens, n_bin_fac=n_bin_fac)
 
     # Write to file
     out_path = params['out_path']

@@ -14,9 +14,6 @@ import sys
 import os
 
 import numpy as np
-from scipy import interpolate
-
-from tqdm import tqdm
 
 from optparse import OptionParser
 import matplotlib.pylab as plt
@@ -64,7 +61,6 @@ def params_default():
         'n_split': 2,
         'idx_ref': None,
         'n_bin_z_hist': 100,
-        'Delta_Sigma' : False,
         'dndz_source_path' : None,
         'output_dir': '.',
         'output_fname_base': 'agn',
@@ -78,7 +74,6 @@ def params_default():
         'n_split': 'int',
         'idx_ref': 'int',
         'n_bin_z_hist': 'int',
-        'Delta_Sigma': 'bool',
     }
 
     # Parameters which can be specified as command line option
@@ -96,10 +91,6 @@ def params_default():
             'bin index for reference redshift histogram, default none'
             + ' (flat weighted histograms)'
         ),
-        'Delta_Sigma' : 'multiply weights with inverse square of the'
-            + ' effective critical surface mass density, default={}',
-        'dndz_source_path' : 'path to source redshift histogram, used if'
-            + ' Delta_Sigma=True, default={}',
         'n_bin_z_hist': 'number of bins for redshift histogram, default={}',
         'output_dir': 'output directory, default={}',
         'output_fname_base': 'output file base name, default={}',
@@ -193,17 +184,7 @@ def check_options(options):
         Result of option check. False if invalid option value.
 
     """
-
-    # Delta_Sigma XOR dndz_source_path is invalid
-    if not (options['Delta_Sigma'] ^ (options['dndz_source_path'] is None)):
-        print(
-            'Both or neither Delta_Sigma=True and dndz_source_path are'
-            + ' required'
-        )
-        return False
-
     return True
-
 
 
 def write_mean_std_logM(
@@ -230,6 +211,120 @@ def write_mean_std_logM(
                 f'{idx} {means_logM[idx]:.3f} {stds_logM[idx]:.3f}',
                 file=f_out,
             )
+
+
+def plot_mass_histogram(mask_list, dat, params, labels, weighted=False):
+
+    if weighted:
+        suf = '_w'
+        mod = 'weighted '
+    else:
+        suf = '_u'
+        mod = ''
+
+    xs = []
+    ws = []
+    means_logM = []
+    stds_logM = []
+    dat_mask = {}
+    for idx, mask in enumerate(mask_list):
+        for key in dat:
+            dat_mask[key] = dat[key][mask]
+
+        logM = dat_mask[params['key_logM']]
+        xs.append(logM)
+        if weighted:
+            w = dat_mask[f'w_{idx}']
+        else:
+            w = np.ones_like(logM)
+        ws.append(w)
+        mean, std = calc.weighted_avg_and_std(logM, w)
+        means_logM.append(mean)
+        stds_logM.append(std)
+
+    # Plot
+    out_name = (
+        f'{params["output_dir"]}'
+        + f'/hist_{params["key_logM"]}_n_split_{params["n_split"]}{suf}.pdf'
+    )
+    plots.plot_histograms(
+        xs,
+        labels,
+        'AGN SMBH {mod}mass distribution',
+        r'$\log ( M_\ast / M_\odot )$',
+        'frequency',
+        [min(dat[params['key_logM']]), max(dat[params['key_logM']])],
+        int(params['n_bin_z_hist'] / params['n_split']),
+        out_name,
+        weights=ws,
+        density=True,
+    )
+
+    return means_logM, stds_logM
+
+
+def write_z_hist(mask_list, z_hist_arr, z_edges_arr, params, suf):
+
+    for idx, mask in enumerate(mask_list):
+        out_name = (
+            f'{params["output_dir"]}/hist_{params["key_z"]}'
+            + f'_{idx}_n_split_{params["n_split"]}{suf}.txt'
+        )
+        if params['verbose']:
+            if suf == '_w':
+                mod = 'reweighted '
+            else:
+                mod = ''
+            print(
+                f'Writing {mod}redshift histogram #{idx+1}/{params["n_split"]}'
+                f' to {out_name}'
+            )
+        z_hist_0 = np.append(z_hist_arr[idx], 0)
+        np.savetxt(
+            out_name,
+            np.column_stack((z_edges_arr[idx], z_hist_0)),
+            header='z dn_dz',
+        )
+
+
+def plot_reweighted_z_hist(                   
+    mask_list,                                                              
+    dat,                                                               
+    params,                                                                 
+    labels,                                                                 
+    z_min,                                                                  
+    z_max                                                                   
+):
+
+    # Prepare input
+    xs = []
+    ws = []
+    dat_mask = {}
+    for idx, mask in enumerate(mask_list):
+        for key in dat:
+            dat_mask[key] = dat[key][mask]
+        xs.append(dat_mask[params['key_z']])
+        ws.append(dat_mask[f'w_{idx}'])
+
+    # Plot
+    out_name = (
+        f'{params["output_dir"]}'
+        + f'/hist_{params["key_z"]}_n_split_{params["n_split"]}_w.pdf'
+    )
+    z_hist_rew_arr, z_edges_rew_arr = plots.plot_histograms(
+        xs,
+        labels,
+        'AGN SMBH reweighted redshift distribution',
+        '$z$',
+        'frequency',
+        [z_min, z_max],
+        int(params['n_bin_z_hist'] / params['n_split']),
+        out_name,
+        weights=ws,
+        density=True,
+    )
+
+    return z_hist_rew_arr, z_edges_rew_arr
 
 
 def main(argv=None):
@@ -273,7 +368,7 @@ def main(argv=None):
         verbose=params['verbose']
     )
 
-    # Cut in redshift if required
+    # Cuts in redshift if required
     dat = wl_cat.cut_data(
         dat,
         params['key_z'],
@@ -318,30 +413,13 @@ def main(argv=None):
     if not os.path.exists(params['output_dir']):
         os.mkdir(params['output_dir'])
 
-    # Plot mass histograms
-    xs = []
-    means_logM = []
-    stds_logM = []
-    n_bin = 100
-    for mask in mask_list:
-        xs.append(dat[params['key_logM']][mask])
-        mean = np.mean(dat[params['key_logM']][mask])
-        std = np.std(dat[params['key_logM']][mask])
-        means_logM.append(mean)
-        stds_logM.append(std)
-    out_name = (
-        f'{params["output_dir"]}'
-        + f'/hist_{params["key_logM"]}_n_split_{params["n_split"]}_u.pdf'
-    )
-    plots.plot_histograms(
-        xs,
+    # Plot (unweighted, original) mass histograms
+    means_logM, stds_logM = plot_mass_histogram(
+        mask_list,
+        dat,
+        params,
         labels,
-        'AGN SMBH mass distribution',
-        r'$\log ( M_\ast / M_\odot )$',
-        'frequency',
-        [min(dat[params['key_logM']]), max(dat[params['key_logM']])],
-        int(n_bin / params['n_split']),
-        out_name,
+        weighted=False,
     )
 
     # Add columns for weight for each sample
@@ -395,64 +473,8 @@ def main(argv=None):
 
         dat[f'w_{idx}'][mask] = weights
 
-
-    # If required multiply weights by inverse square of effective
-    # critical surface mass density
-    if params['Delta_Sigma']:
-
-        cosmo = defaults.get_cosmo_default()
-
-        # Source redshift distribution and distances
-        z_source, nz_source, _ = wl_cat.read_dndz(params['dndz_source_path'])
-        a_source = 1 / (1 + z_source)
-        d_ang_source = cosmo.angular_diameter_distance(a_source)
-
-        # Create spline interpolation function
-        nz_source_interp = interpolate.InterpolatedUnivariateSpline(z_source, nz_source)
-        d_ang_source_interp = interpolate.InterpolatedUnivariateSpline(z_source, d_ang_source)
-
-        # Rebin source to lower number to speed up Sigma_cr computation
-        n_z_source_rebin = 25
-        z_source_rebin = np.linspace(z_source[0], z_source[-1], n_z_source_rebin)
-        nz_source_rebin = nz_source_interp(z_source_rebin)
-        d_ang_source_rebin = d_ang_source_interp(z_source_rebin)
-
-        # Loop over lens selections
-        for idx, mask in enumerate(mask_list):
-
-            n_z_lens = 25
-            z_lens = np.linspace(z_min, z_max, n_z_lens)
-            a_lens = 1 / (1 + z_lens)
-            d_ang_lens = cosmo.angular_diameter_distance(a_lens)
-            d_ang_lens_interp = interpolate.InterpolatedUnivariateSpline(z_lens, d_ang_lens)
-
-            sig_cr_w = np.ones_like(dat[params['key_z']][mask])
-
-            # Loop over lens objects
-            for idz, z in tqdm(
-                enumerate(dat[params['key_z']][mask]),
-                total=len(dat[params['key_z']][mask]),
-                disable=not params['verbose'],
-                desc=f'split {idx}/{params["n_split"]}',
-            ):
-                #a_lens = 1 / (1 + z)
-                #d_ang_lens = cosmo.angular_diameter_distance(a_lens)
-                d_ang_lens_spline = d_ang_lens_interp(z)
-                sig_crit_m1_eff = cs_cosmo.sigma_crit_m1_eff(
-                    z,
-                    z_source_rebin,
-                    nz_source_rebin,
-                    cosmo,
-                    d_lens=d_ang_lens_spline,
-                    d_source_arr=d_ang_source_rebin,
-                )
-
-                sig_cr_w[idz] = sig_crit_m1_eff.value ** 2
-
-            # Apply weights
-            dat[f'w_{idx}'][mask] = dat[f'w_{idx}'][mask] * sig_cr_w
-
-    # Plot original redshift histograms
+    # Original redshift histogram
+    ## Plot
     out_name = (
         f'{params["output_dir"]}'
         + f'/hist_{params["key_z"]}_n_split_{params["n_split"]}_u.pdf'
@@ -467,106 +489,39 @@ def main(argv=None):
         out_name,
     )
 
-    # Save original redshift histogram to ASCII file
-    for idx, mask in enumerate(mask_list):
-        out_name = (
-            f'{params["output_dir"]}/hist_{params["key_z"]}'
-            + f'_{idx}_n_split_{params["n_split"]}_u.txt'
-        )
-        if params['verbose']:
-            print(
-                f'Writing redshift histogram #{idx+1}/{params["n_split"]}'
-                f' to {out_name}'
-            )
-        z_hist_0 = np.append(z_hist_arr[idx], 0)
-        np.savetxt(
-            out_name,
-            np.column_stack((z_edges_arr[idx], z_hist_0)),
-            header='z dn_dz',
-        )
+    ## Save to ASCII file
+    write_z_hist(mask_list, z_hist_arr, z_edges_arr, params, '_u')
 
-    # Test: plot reweighted redshift histograms, which should be flat
-    # Prepare input
-    xs = []
-    ws = []
-    dat_mask = {}
-    for idx, mask in enumerate(mask_list):
-        for key in dat:
-            dat_mask[key] = dat[key][mask]
-        xs.append(dat_mask[params['key_z']])
-        ws.append(dat_mask[f'w_{idx}'])
 
-    # Plot
-    out_name = (
-        f'{params["output_dir"]}'
-        + f'/hist_{params["key_z"]}_n_split_{params["n_split"]}_w.pdf'
-    )
-    z_hist_rew_arr, z_edges_rew_arr = plots.plot_histograms(
-        xs,
+    # Reweighted redshift histograms
+    # (if idx_ref is None, this should be flat)
+
+    ## Plot
+    z_hist_rew_arr, z_edges_rew_arr = plot_reweighted_z_hist(
+        mask_list,
+        dat,
+        params,
         labels,
-        'AGN SMBH reweighted redshift distribution',
-        '$z$',
-        'frequency',
-        [z_min, z_max],
-        int(params['n_bin_z_hist'] / params['n_split']),
-        out_name,
-        weights=ws,
-        density=True,
+        z_min,
+        z_max
     )
 
-    # Save reweighted redshift histogram (= flat) to ASCII file
-    for idx, mask in enumerate(mask_list):
-        out_name = (
-            f'{params["output_dir"]}/hist_{params["key_z"]}'
-            + f'_{idx}_n_split_{params["n_split"]}_w.txt'
-        )
-        if params['verbose']:
-            print(
-                f'Writing reweighted redshift histogram'
-                + f' #{idx+1}/{params["n_split"]}'
-                f' to {out_name}'
-            )
-        z_hist_rew_0 = np.append(z_hist_rew_arr[idx], 0)
-        np.savetxt(
-            out_name,
-            np.column_stack((z_edges_rew_arr[idx], z_hist_rew_0)),
-            header='z dn_dz',
-        )
+    ## Save to disk
+    write_z_hist(
+        mask_list,
+        z_hist_rew_arr,
+        z_edges_rew_arr,
+        params,
+        '_w',
+    )
 
     # Plot reweighted mass histogram
-    # Prepare input
-    xs = []
-    means_logM_w = []
-    stds_logM_w = []
-    dat_mask = {}
-    for idx, mask in enumerate(mask_list):
-        for key in dat:
-            dat_mask[key] = dat[key][mask]
-        xs.append(dat_mask[params['key_logM']])
-        w = dat_mask[f'w_{idx}']
-        ws.append(w)
-        mean, std = calc.weighted_avg_and_std(
-            dat[params['key_logM']][mask], w
-        )
-        means_logM_w.append(mean)
-        stds_logM_w.append(std)
-
-    # Plot
-    out_name = (
-        f'{params["output_dir"]}'
-        + f'/hist_{params["key_logM"]}_n_split_{params["n_split"]}_w.pdf'
-    )
-    plots.plot_histograms(
-        xs,
+    means_logM_w, stds_logM_w = plot_mass_histogram(
+        mask_list,
+        dat,
+        params,
         labels,
-        'AGN SMBH reweighted mass distribution',
-        r'$\log ( M_\ast / M_\odot )$',
-        'frequency',
-        [min(dat[params['key_logM']]), max(dat[params['key_logM']])],
-        int(params['n_bin_z_hist'] / params['n_split']),
-        out_name,
-        weights=ws,
-        density=True,
+        weighted=True,
     )
 
     # Write unweighted and weighted logM summaries to file
@@ -585,6 +540,7 @@ def main(argv=None):
             std,
         )
 
+    # Write catalogues
     dat_mask = {}
     for idx, mask in enumerate(mask_list):
         for key in dat:
