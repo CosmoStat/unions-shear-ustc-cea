@@ -34,6 +34,16 @@ from cs_util import cosmo as cs_cosmo
 
 
 class ng_essentials(object):
+    """Ng Essentials class.
+
+    Contain essential information for cross-correlations,
+    a subset of treecorr.ng data.
+
+    Parameters
+    ----------
+    n_bin : int
+        number of angular bins
+    """
 
     def __init__(self, n_bin):
         # Variance is not set during process_corr
@@ -45,7 +55,16 @@ class ng_essentials(object):
         self.npairs = np.zeros(n_bin)
 
     def copy_from(self, ng):
+        """Copy From.
 
+        Copy correlation data to this instance.
+
+        Parameters
+        ----------
+        ng : ng_essentials or treecorr.ng
+            data to copy to this instance
+
+        """
         for jdx in range(len(self.meanr)):
             self.meanr[jdx] = ng.meanr[jdx]
             self.meanlogr[jdx] = ng.meanlogr[jdx]
@@ -55,7 +74,16 @@ class ng_essentials(object):
             self.npairs[jdx] = ng.npairs[jdx]
 
     def copy_to(self, ng):
+        """Copy To.
 
+        Copy correlation data from this instance.
+
+        Parameters
+        ----------
+        ng : ng_essentials or treecorr.ng
+            data to copy to from this instance
+
+        """
         for jdx in range(len(ng.meanr)):
             ng.meanr[jdx] = self.meanr[jdx]
             ng.meanlogr[jdx] = self.meanlogr[jdx]
@@ -65,12 +93,22 @@ class ng_essentials(object):
             ng.npairs[jdx] = self.npairs[jdx]
 
     def difference(self, ng_min, ng_sub):
+        """Difference
 
-        # Compute difference between both correlations.
-        # If ng_min and ng_sub are two subsequent outputs of
-        # treecorr.proess_cross, these are weighted quantities.
-        # This is because the cumulative processing adds
-        # weighted results.
+        Compute difference between two correlation datasets.
+        If ng_min and ng_sub are two subsequent outputs of
+        treecorr.proess_cross, these are weighted quantities.
+        This is because the cumulative processing adds
+        weighted results.
+
+        Parameters
+        ----------
+        ng_min : ng.essentials or treecorr.ng
+            minuend
+        ng_sub : ng_essentials or treecorr_ng
+            subtrahend
+
+        """
         for jdx in range(len(self.meanr)):
             self.weight[jdx] = ng_min.weight[jdx] - ng_sub.weight[jdx]
 
@@ -89,7 +127,16 @@ class ng_essentials(object):
                 self.meanr[jdx] = self.meanr[jdx] / self.weight[jdx]
 
     def add(self, ng_sum):
+        """Add.
 
+        Add correlation data to this instance.
+
+        Parameters
+        ----------
+        ng_sum : ng_essentials or treecorr.ng
+            summand
+
+        """
         for jdx in range(len(self.meanr)):
             self.meanr[jdx] += ng_sum.meanr[jdx] * ng_sum.weight[jdx]
 
@@ -99,8 +146,21 @@ class ng_essentials(object):
         self.weight += ng_sum.weight
         self.npairs += ng_sum.npairs
 
-    def add_physical(self, ng, r, d_ang, sep_units):
+    def add_physical(self, ng, r, d_ang):
+        """Add Physical.
 
+        Add correlation data to this instance for physical stacking.
+
+        Parameters
+        ----------
+        ng : ng_essentials or treecorr.ng
+            summand
+        r : list
+            physical distances for stacking, in Mpc
+        d_ang : float
+            angular diameter distance to object
+
+        """
         # Original angular x values [rad]
         x = ng.meanr
 
@@ -119,9 +179,17 @@ class ng_essentials(object):
         self.weight += get_interp(x_new, x, ng.weight)
         self.npairs += get_interp(x_new, x, ng.npairs)
 
-
     def normalise(self, n_bin_fac=1):
+        """Normalise.
 
+        Normalise (pre-processed) correlation data.
+
+        Parameters
+        ----------
+        n_bin_fac : int, optional
+            ratio of bins before and after stacking, default is 1
+
+        """
         sw = self.weight
 
         for jdx in range(len(self.meanr)):
@@ -134,11 +202,18 @@ class ng_essentials(object):
         self.npairs *= n_bin_fac
 
     def set_units_scales(self, sep_units):
+        """Set Units Scales
 
+        Parameters
+        ----------
+        sep_units : str
+            unit for angular distances
+
+        """
         # Angular scales: coordinates need to be attributed at the end
         self.meanr = (self.meanr * units.rad).to(sep_units).value
 
-        # Log-scales: more complicated
+        # Log-scales: more complicated, TODO
 
 
 def params_default():
@@ -400,24 +475,72 @@ def create_treecorr_catalogs(
 
 
 def rad_to_unit(value, unit):
+    """Rad To Unit.
 
+    Transform quantity interpreted in rad to different unit
+
+    Parameters
+    ----------
+    value : float
+        input quantity, interpreted in rad
+    unit : str
+        desired unit
+
+    Returns
+    -------
+    float
+        quantity expressed in unit
+
+    """
     return (value * units.rad).to(unit).value
 
 
 def unit_to_rad(value, unit):
+    """Unit To Rad.
+
+    Transform quantity interpreted in unit to rad
+
+    Parameters
+    ----------
+    value : float
+        input quantity, interpreted in unit
+    unit : str
+        input unit
+
+    Returns
+    -------
+    float
+        quantity expressed in unit
+
+    """
 
     return value * units.Unit(units).to('rad')
 
 
 def get_theta_min_max(r_min, r_max, d_ang_arr, sep_units):
+    """Get Theta Min Max.
 
+    Return extrema of angular distance given range of physical
+    distance and comoving angular distance.
+
+    Paraameters
+    -----------
+    r_min : float
+        smallest physical distance
+    r_max : float
+        largest physical distance
+    d_ang_arr : list
+        array of angular diameter distances
+    sep_units : str
+        unit of angular distances
+
+    """
     # Min and max angular distance at object redshift
     d_ang_min = min(d_ang_arr)
     d_ang_max = max(d_ang_arr)
     d_ang_mean = np.mean(d_ang_arr)
 
     # Transfer physical to angular scales
-
     theta_min = 1e30
     theta_max = -1
     for d_ang in d_ang_arr:
@@ -434,13 +557,21 @@ def get_theta_min_max(r_min, r_max, d_ang_arr, sep_units):
     theta_max = theta_max * 1.5
 
     print(f'physical to angular scales, r = {r_min}  ... {r_max:} Mpc')
-    print(f'physical to angular scales, d_ang = {min(d_ang_arr):.2f}  ... {max(d_ang_arr):.2f} (mean {d_ang_mean:.2f}) Mpc')
-    print(f'physical to angular scales, theta = {theta_min:.2g}  ... {theta_max:.2g} rad')
+    print(
+        f'physical to angular scales, d_ang = {min(d_ang_arr):.2f}'
+        + ' ... {max(d_ang_arr):.2f} (mean {d_ang_mean:.2f}) Mpc'
+    )
+    print(
+        f'physical to angular scales, theta = {theta_min:.2g}'
+        + ' ... {theta_max:.2g} rad'
+    )
 
     theta_min = rad_to_unit(theta_min, sep_units)
     theta_max = rad_to_unit(theta_max, sep_units)
 
-    print(f'physical to angular scales, theta = {theta_min:.2g}  ... {theta_max:.2f} arcmin')
+    print(
+        f'physical to angular scales, theta = {theta_min:.2g}'
+        + ' ... {theta_max:.2f} arcmin')
 
     return theta_min, theta_max
 
@@ -453,6 +584,30 @@ def create_treecorr_config(
     n_theta,
     n_cpu,
 ):
+    """Create Treecorr Config.
+
+    Return treecorr config dictionary
+
+    Parameters
+    ----------
+    coord_units : str
+        units of coordinates in input catalogue
+    scale_min : float
+        smallest angular scale
+    scale_max : float
+        largest angular scale
+    sep_units : str
+        units of angular distances
+    n_theta : int
+        number of angular bins
+    n_cpu : int
+        number of CPUs for processing
+
+    Returns
+    -------
+    dict
+        configuration information
+    """
 
     TreeCorrConfig = {
         'ra_units': coord_units,
@@ -468,7 +623,25 @@ def create_treecorr_config(
 
 
 def get_interp(x_new, x, y):
+    """Get Interp
 
+    Return interpolated value y(x_new) extracted from interpolation table y(x).
+
+    Parameters
+    ----------
+    x_new : list
+        abcissa values for interpolation output
+    x : list
+        input tabulated absissa values
+    y : list
+        input ordinate values
+
+    Returns
+    -------
+    list
+        interpolated ordinate values
+
+    """
     y_new = np.zeros_like(x_new)
 
     # Compute upper limit (assuming logarithmic bins)
@@ -488,12 +661,24 @@ def get_interp(x_new, x, y):
             (idx != 0 and x[idx] < x_new[0])
             or (idx != n_bins - 1 and x[idx] > x_upper_new)
         ):
-            print(f'Warning: x[{idx}]={x[idx]:.3g} outside range {x_new[0]:.3g} ... {x_upper_new:.3g}')
+            print(
+                f'Warning: x[{idx}]={x[idx]:.3g} outside range {x_new[0]:.3g}'
+                + f' ... {x_upper_new:.3g}'
+            )
             continue
 
         idx_tmp = np.searchsorted(x_new, x_val, side='left')
         if idx_tmp == len(x_new): continue
-        if idx_tmp > 0 and (idx_tmp == len(x_new) or math.fabs(x_val - x_new[idx_tmp - 1]) < math.fabs(x_val - x_new[idx_tmp])):
+        if (
+            idx_tmp > 0
+            and (
+                idx_tmp == len(x_new)
+                or (
+                    math.fabs(x_val - x_new[idx_tmp - 1])
+                    < math.fabs(x_val - x_new[idx_tmp])
+                )
+            )
+        ):
             idx_new = idx_tmp - 1
         else:
             idx_new = idx_tmp
@@ -505,6 +690,17 @@ def get_interp(x_new, x, y):
 
 
 def ng_stack(TreeCorrConfig, all_ng, all_d_ang, n_bin_fac=1):
+    """Ng Stack.
+
+    Stack correlation data.
+
+    Parameters
+    ----------
+    TreeCorrConfig : dict
+        treecorr configuration information
+    all_ng : list
+        
+
 
     # Initialise combined correlation objects
     ng_comb = treecorr.NGCorrelation(TreeCorrConfig)
@@ -521,7 +717,7 @@ def ng_stack(TreeCorrConfig, all_ng, all_d_ang, n_bin_fac=1):
 
         # Add up all individual correlations on physical coordinates
         for ng, d_ang in zip(all_ng, all_d_ang):
-            ng_final.add_physical(ng, r, d_ang, sep_units)
+            ng_final.add_physical(ng, r, d_ang)
 
     else:
 
@@ -539,6 +735,45 @@ def ng_stack(TreeCorrConfig, all_ng, all_d_ang, n_bin_fac=1):
     ng_comb.meanlogr = np.log(ng_comb.meanlogr)
 
     return ng_comb
+
+def get_sig_cr_w2(cosmo, dndz_source_path, z_lens_arr, d_ang_lens_interp, verbose=False):
+
+    # Source redshift distribution and distances
+    z_source, nz_source, _ = wl_cat.read_dndz(dndz_source_path)
+    a_source = 1 / (1 + z_source)
+    d_ang_source = cosmo.angular_diameter_distance(a_source)
+
+    # Create spline interpolation function
+    nz_source_interp = interpolate.InterpolatedUnivariateSpline(z_source, nz_source)
+    d_ang_source_interp = interpolate.InterpolatedUnivariateSpline(z_source, d_ang_source)
+
+    # Rebin source to lower number to speed up Sigma_cr computation
+    n_z_source_rebin = 25
+    z_source_rebin = np.linspace(z_source[0], z_source[-1], n_z_source_rebin)
+    nz_source_rebin = nz_source_interp(z_source_rebin)
+    d_ang_source_rebin = d_ang_source_interp(z_source_rebin)
+
+    sig_cr_w2 = np.ones_like(z_lens_arr, dtype=float)
+
+    # Loop over lens objects
+    for idz, z in tqdm(
+        enumerate(z_lens_arr),
+        total=len(z_lens_arr),
+        disable=not verbose,
+    ):
+        d_ang_lens_spline = d_ang_lens_interp(z)
+        sig_crit_m1_eff = cs_cosmo.sigma_crit_m1_eff(
+            z,
+            z_source_rebin,
+            nz_source_rebin,
+            cosmo,
+            d_lens=d_ang_lens_spline,
+            d_source_arr=d_ang_source_rebin,
+        )
+
+        sig_cr_w2[idz] = sig_crit_m1_eff.value ** 2
+
+    return sig_cr_w2
 
 
 def main(argv=None):
@@ -616,6 +851,10 @@ def main(argv=None):
                 print(f'Using catalog weights for {sample} sample')
 
     if params['physical']:
+
+        if params['verbose']:
+            print(f'Modifying weights for {sample} sample by Sig_cr^{-2}')
+
         cosmo = defaults.get_cosmo_default()
         n_theta = params['n_theta'] * n_bin_fac
 
@@ -636,40 +875,14 @@ def main(argv=None):
         n_theta = params['n_theta']
 
     if params['Delta_Sigma']:
-        # Source redshift distribution and distances
-        z_source, nz_source, _ = wl_cat.read_dndz(params['dndz_source_path'])
-        a_source = 1 / (1 + z_source)
-        d_ang_source = cosmo.angular_diameter_distance(a_source)
 
-        # Create spline interpolation function
-        nz_source_interp = interpolate.InterpolatedUnivariateSpline(z_source, nz_source)
-        d_ang_source_interp = interpolate.InterpolatedUnivariateSpline(z_source, d_ang_source)
-
-        # Rebin source to lower number to speed up Sigma_cr computation
-        n_z_source_rebin = 25
-        z_source_rebin = np.linspace(z_source[0], z_source[-1], n_z_source_rebin)
-        nz_source_rebin = nz_source_interp(z_source_rebin)
-        d_ang_source_rebin = d_ang_source_interp(z_source_rebin)
-
-        sig_cr_w2 = np.ones_like(w['fg'])
-
-        # Loop over lens objects
-        for idz, z in tqdm(
-            enumerate(data['fg'][params['key_z']]),
-            total=len(data['fg'][params['key_z']]),
-            disable=not params['verbose'],
-        ):
-            d_ang_lens_spline = d_ang_lens_interp(z)
-            sig_crit_m1_eff = cs_cosmo.sigma_crit_m1_eff(
-                z,
-                z_source_rebin,
-                nz_source_rebin,
-                cosmo,
-                d_lens=d_ang_lens_spline,
-                d_source_arr=d_ang_source_rebin,
-            )
-
-            sig_cr_w2[idz] = sig_crit_m1_eff.value ** 2
+        sig_cr_w2 = get_sig_cr_w2(
+            cosmo,
+            params['dndz_source_path'],
+            data['fg'][params['key_z']],
+            d_ang_lens_interp,
+            verbose=params['verbose'],
+        )
 
         # Apply weights
         w['fg'] = w['fg'] * sig_cr_w2
