@@ -29,7 +29,7 @@ def get_cosmo_default():
 
     Returns
     -------
-    Cosmology
+    ccl.Cosmology
         pyccl cosmology object
 
     """

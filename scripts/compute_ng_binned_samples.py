@@ -19,7 +19,7 @@ from optparse import OptionParser
 
 import numpy as np
 import math
-from scipy import interpolate
+from scipy.interpolate import InterpolatedUnivariateSpline as spline
 
 from astropy.io import fits
 from astropy import units
@@ -699,9 +699,19 @@ def ng_stack(TreeCorrConfig, all_ng, all_d_ang, n_bin_fac=1):
     TreeCorrConfig : dict
         treecorr configuration information
     all_ng : list
+        information on correlations with individual fg objects
+    all_d_ang : list
+        angular distances to fg objects to transform angular to physical
+        coordinates; if ``None`` stacking on angular coordinates
+    n_bin_fac : int, optional
+        ratio of bins before and after stacking, default is 1
+
+    Returns
+    -------
+    treecorr.NGCorrelation
+        stacked cross-correlation information
         
-
-
+    """
     # Initialise combined correlation objects
     ng_comb = treecorr.NGCorrelation(TreeCorrConfig)
 
@@ -736,16 +746,52 @@ def ng_stack(TreeCorrConfig, all_ng, all_d_ang, n_bin_fac=1):
 
     return ng_comb
 
-def get_sig_cr_w2(cosmo, dndz_source_path, z_lens_arr, d_ang_lens_interp, verbose=False):
 
+def get_sig_cr_m2(
+    cosmo,
+    dndz_source_path,
+    z_lens_arr,
+    d_ang_lens_interp,
+    verbose=False
+):
+    """Get Sigma Critical Power Minus Two
+
+    Return inverse square of effective critical surface mass density values
+
+    Parameters
+    ----------
+    cosmo : ccl.Cosmology
+        cosmology information
+    dndz_source_path : str
+        path to ASCII file containing dn/dz for sources
+    z_lens_arr : numpy.ndarray
+        lens redshifts
+    d_ang_lens_interp : interpolate.InterpolatedUnivariateSpline
+        interpolation function of angular distances to lens redshifts
+    verbose : bool, optional
+        verbose output if ``True``, default is ``False``
+
+    Returns
+    -------
+    numpy.ndarray
+        inverse square of effective critical surface mass density at lens
+        redshifts
+
+    """
     # Source redshift distribution and distances
     z_source, nz_source, _ = wl_cat.read_dndz(dndz_source_path)
     a_source = 1 / (1 + z_source)
     d_ang_source = cosmo.angular_diameter_distance(a_source)
 
     # Create spline interpolation function
-    nz_source_interp = interpolate.InterpolatedUnivariateSpline(z_source, nz_source)
-    d_ang_source_interp = interpolate.InterpolatedUnivariateSpline(z_source, d_ang_source)
+    nz_source_interp = spline(
+        z_source,
+        nz_source
+    )
+    d_ang_source_interp = spline(
+        z_source,
+        d_ang_source
+    )
 
     # Rebin source to lower number to speed up Sigma_cr computation
     n_z_source_rebin = 25
@@ -753,7 +799,7 @@ def get_sig_cr_w2(cosmo, dndz_source_path, z_lens_arr, d_ang_lens_interp, verbos
     nz_source_rebin = nz_source_interp(z_source_rebin)
     d_ang_source_rebin = d_ang_source_interp(z_source_rebin)
 
-    sig_cr_w2 = np.ones_like(z_lens_arr, dtype=float)
+    sig_cr_m2_weight = np.ones_like(z_lens_arr, dtype=float)
 
     # Loop over lens objects
     for idz, z in tqdm(
@@ -771,9 +817,9 @@ def get_sig_cr_w2(cosmo, dndz_source_path, z_lens_arr, d_ang_lens_interp, verbos
             d_source_arr=d_ang_source_rebin,
         )
 
-        sig_cr_w2[idz] = sig_crit_m1_eff.value ** 2
+        sig_cr_m2_weight[idz] = sig_crit_m1_eff.value ** 2
 
-    return sig_cr_w2
+    return sig_cr_m2_weight
 
 
 def main(argv=None):
@@ -782,7 +828,6 @@ def main(argv=None):
     Main program
 
     """
-
     params, short_options, types, help_strings = params_default()
 
     options = parse_options(params, short_options, types, help_strings)
@@ -868,7 +913,10 @@ def main(argv=None):
         z_max = max(data['fg'][params['key_z']]) * fac
         z_lens_arr = np.linspace(z_min, z_max, n_z_lens)
         d_ang_lens = cosmo.angular_diameter_distance(z_lens_arr)
-        d_ang_lens_interp = interpolate.InterpolatedUnivariateSpline(z_lens_arr, d_ang_lens)
+        d_ang_lens_interp = spline(
+            z_lens_arr,
+            d_ang_lens
+        )
 
     else:
         cosmo = None
@@ -876,7 +924,7 @@ def main(argv=None):
 
     if params['Delta_Sigma']:
 
-        sig_cr_w2 = get_sig_cr_w2(
+        sig_cr_m2_weight = get_sig_cr_m2(
             cosmo,
             params['dndz_source_path'],
             data['fg'][params['key_z']],
@@ -885,7 +933,7 @@ def main(argv=None):
         )
 
         # Apply weights
-        w['fg'] = w['fg'] * sig_cr_w2
+        w['fg'] = w['fg'] * sig_cr_m2_weight
 
 
     # Create treecorr catalogues
