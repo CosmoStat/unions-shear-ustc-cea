@@ -747,16 +747,16 @@ def ng_stack(TreeCorrConfig, all_ng, all_d_ang, n_bin_fac=1):
     return ng_comb
 
 
-def get_sig_cr_m2(
+def get_sig_cr_m1(
     cosmo,
     dndz_source_path,
     z_lens_arr,
     d_ang_lens_interp,
     verbose=False
 ):
-    """Get Sigma Critical Power Minus Two
+    """Get Sigma Critical Power Minus One
 
-    Return inverse square of effective critical surface mass density values
+    Return inverse effective critical surface mass density values
 
     Parameters
     ----------
@@ -774,8 +774,7 @@ def get_sig_cr_m2(
     Returns
     -------
     numpy.ndarray
-        inverse square of effective critical surface mass density at lens
-        redshifts
+        inverse effective critical surface mass density at lens redshifts
 
     """
     # Source redshift distribution and distances
@@ -799,7 +798,7 @@ def get_sig_cr_m2(
     nz_source_rebin = nz_source_interp(z_source_rebin)
     d_ang_source_rebin = d_ang_source_interp(z_source_rebin)
 
-    sig_cr_m2_weight = np.ones_like(z_lens_arr, dtype=float)
+    sig_cr_m1 = np.ones_like(z_lens_arr, dtype=float)
 
     # Loop over lens objects
     for idz, z in tqdm(
@@ -817,9 +816,22 @@ def get_sig_cr_m2(
             d_source_arr=d_ang_source_rebin,
         )
 
-        sig_cr_m2_weight[idz] = sig_crit_m1_eff.value ** 2
+        sig_cr_m1[idz] = sig_crit_m1_eff.value
 
-    return sig_cr_m2_weight
+    return sig_cr_m1
+        
+
+def gamma_t_to_Delta_Sigma(all_ng, sig_cr_m1_arr):
+
+    if len(sig_cr_m1_arr) != len(all_ng):
+        raise IndexError(
+            f'Array lengths {len(sig_cr_m1)} and {len(all_ng)} unequal'
+        )
+
+    for ng, sig_cr_m1, in zip(all_ng, sig_cr_m1_arr):
+
+        ng.xi = ng.xi / sig_cr_m1
+        ng.xi_im = ng.xi_im / sig_cr_m1
 
 
 def main(argv=None):
@@ -897,9 +909,6 @@ def main(argv=None):
 
     if params['physical']:
 
-        if params['verbose']:
-            print(f'Modifying weights for {sample} sample by Sig_cr^{-2}')
-
         cosmo = defaults.get_cosmo_default()
         n_theta = params['n_theta'] * n_bin_fac
 
@@ -924,7 +933,11 @@ def main(argv=None):
 
     if params['Delta_Sigma']:
 
-        sig_cr_m2_weight = get_sig_cr_m2(
+        if params['verbose']:
+            print(f'Modifying weights for {sample} sample by Sig_cr^{-2}')
+
+        # Compute inverse surface mass density 
+        sig_cr_m1 = get_sig_cr_m1(
             cosmo,
             params['dndz_source_path'],
             data['fg'][params['key_z']],
@@ -932,9 +945,8 @@ def main(argv=None):
             verbose=params['verbose'],
         )
 
-        # Apply weights
-        w['fg'] = w['fg'] * sig_cr_m2_weight
-
+        # Apply to weights, for optimal weighting
+        w['fg'] = w['fg'] * sig_cr_m1 ** 2
 
     # Create treecorr catalogues
     for sample in ('fg', 'bg'):
@@ -1012,15 +1024,12 @@ def main(argv=None):
             ng_diff = ng_essentials(n_theta)
             ng_diff.difference(ng, ng_prev)
 
-            # Count (and add) only those will full correlations across scales
-            if True:
-            #if all(ng_diff.weight > 0):
-            #if any(ng_diff.weight > 0):
-                n_corr += 1
+            # Count (and add) correlations
+            n_corr += 1
+            all_ng.append(ng_diff)
 
-                all_ng.append(ng_diff)
-                # Update previous cumulative correlations
-                ng_essentials.copy_from(ng_prev, ng)
+            # Update previous cumulative correlations
+            ng_essentials.copy_from(ng_prev, ng)
 
         if params['stack'] == 'cross':
             if params['verbose']:
@@ -1051,6 +1060,12 @@ def main(argv=None):
             params['n_theta'],
             1,
         )
+
+        if params['Delta_Sigma']:
+
+            # Transform gamma_t to Delta Sigma estimator
+            gamma_t_to_Delta_Sigma(all_ng, sig_cr_m1)
+
 
     if len(cats['fg']) > 1 and not params['stack'] == 'cross':
         # Stack now (in post-processing) if more than one fg catalogue,

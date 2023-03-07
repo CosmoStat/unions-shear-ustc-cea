@@ -57,6 +57,7 @@ def params_default():
         'n_cpu': 1,
         'weight': 'w',
         'physical' : False,                                                     
+        'Delta_Sigma' : False,
         'verbose': False,
     }
 
@@ -67,6 +68,7 @@ def params_default():
         'n_split_max': 'int',
         'n_cpu': 'int',
         'physical': 'bool',
+        'Delta_Sigma': 'bool',
     }
 
     # Parameters which can be specified as command line option
@@ -85,6 +87,8 @@ def params_default():
             + ' distribution, or unweighted (\'u\'), default={}'
         ),
         'physical' : '2D coordinates are physical [Mpc]',
+        'Delta_Sigma' : 'excess surface mass density instead of tangential'     
+            + ' shear  default={}',
     }
 
     # Options which have one-letter shortcuts (include dash, e.g. '-n')
@@ -159,6 +163,25 @@ def parse_options(p_def, short_options, types, help_strings):
     options, args = parser.parse_args()
 
     return options
+
+
+def check_options(options):                                                     
+    """Check command line options.                                              
+                                                                                
+    Parameters                                                                  
+    ----------                                                                  
+    options: tuple                                                              
+        Command line options                                                    
+                                                                                
+    Returns                                                                     
+    -------                                                                     
+    bool                                                                        
+        Result of option check. False if invalid option value.                  
+                                                                                
+    """                                                                         
+    if options['Delta_Sigma'] and not options['physical']:                      
+        print('With Delta_Sigma=True physical needs to be True')                
+        return False
 
 
 def read_mean_std_log_M_BH(n_split_arr, weight):
@@ -665,6 +688,9 @@ def main(argv=None):
     # Update parameter values
     for key in vars(options):
         params[key] = getattr(options, key)
+
+    if check_options(params) is False:                                          
+        return 1
 
     # Save calling command
     logging.log_command(argv)
