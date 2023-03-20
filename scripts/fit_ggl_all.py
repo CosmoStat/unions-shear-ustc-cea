@@ -24,11 +24,12 @@ import pyccl as ccl
 from lmfit import minimize, Parameters, fit_report
 
 from unions_wl import theory
-from unions_wl import catalogue as cat
+from unions_wl import catalogue as cat_wl
 from unions_wl import defaults
 
 from cs_util import plots
 from cs_util import logging
+from cs_util import cat as cat_csu
 
 import treecorr
 
@@ -196,7 +197,7 @@ def read_z_data(n_split_arr, weight, shapes, blinds):
         for idx in range(n_split):
             dndz_path = f'hist_z_{idx}_n_split_{n_split}_{weight}.txt'
             z_centers[sample][n_split][idx], nz[sample][n_split][idx], _ = (
-                cat.read_dndz(dndz_path)
+                cat_csu.read_dndz(dndz_path)
             )
 
     # bg redshift distribution
@@ -208,7 +209,7 @@ def read_z_data(n_split_arr, weight, shapes, blinds):
         for blind in blinds:
             dndz_path = f'dndz_{sh}_{blind}.txt'
             z_centers[sample][sh][blind], nz[sample][sh][blind], _ = (
-                cat.read_dndz(dndz_path)
+                cat_csu.read_dndz(dndz_path)
             )
 
     return z_centers, nz
@@ -227,7 +228,7 @@ def read_correlation_data(n_split_arr, weight, shapes):
                 ng_path = (
                     f'{sh}/ggl_agn_{idx}_n_split_{n_split}_{weight}.fits'
                 )
-                ng[n_split][idx][sh] = cat.get_ngcorr_data(ng_path)
+                ng[n_split][idx][sh] = cat_wl.get_ngcorr_data(ng_path)
 
     return ng
 

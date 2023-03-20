@@ -65,36 +65,6 @@ def bin_edges2centers(bin_edges):
     return bin_means
 
 
-def read_dndz(file_path):
-    """Read Dndz.
-
-    Read redshift histogram from file.
-
-    Parameters
-    ----------
-    file_path : str
-        input file path
-
-    Returns
-    -------
-    list :
-        redshift bin centers
-    list :
-        number densities
-    list :
-        redshift bin edges
-
-    """
-    dat = ascii.read(file_path, format='commented_header')
-
-    # Remove last n(z) value which is zero, to match bin centers
-    nz = dat['dn_dz'][:-1]
-    z_edges = dat['z']
-    z_centers = bin_edges2centers(z_edges)
-
-    return z_centers, nz, z_edges
-
-
 def write_ascii(out_path, data, names):
     """Write Ascii.
 
