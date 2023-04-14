@@ -42,29 +42,6 @@ def y_equi(cdf, n):
     return x_list
 
 
-def bin_edges2centers(bin_edges):
-    """BIN EDGES TO CENTERS
-
-    Transform bin edge values to central values
-
-    Parameters
-    ----------
-    bin_edges : list
-        bin edge values
-
-    Returns
-    -------
-    list
-        bin central values
-
-    """
-    bin_means = 0.5 * (
-        bin_edges[1:] + bin_edges[:-1]
-    )
-
-    return bin_means
-
-
 def write_ascii(out_path, data, names):
     """Write Ascii.
 

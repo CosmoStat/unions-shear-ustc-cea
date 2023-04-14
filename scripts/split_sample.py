@@ -26,14 +26,14 @@ from statsmodels.distributions.empirical_distribution import ECDF
 from astropy.table import Table
 from astropy.io import fits
 
-from unions_wl import catalogue as wl_cat
+from unions_wl import catalogue as cat_wl
 from unions_wl import defaults
 
 from cs_util import logging
 from cs_util import calc
 from cs_util import plots
-from cs_util import cat as cs_cat
-from cs_util import cosmo as cs_cosmo
+from cs_util import cat as cat_csu
+from cs_util import cosmo as cosmo_csu
 
 
 def params_default():
@@ -265,7 +265,7 @@ def main(argv=None):
         print(f'Computing cdf({params["key_logM"]})...')
 
     # Cut in mass if required
-    dat = wl_cat.cut_data(
+    dat = cat_wl.cut_data(
         dat,
         params['key_logM'],
         params['logM_min'],
@@ -274,14 +274,14 @@ def main(argv=None):
     )
 
     # Cut in redshift if required
-    dat = wl_cat.cut_data(
+    dat = cat_wl.cut_data(
         dat,
         params['key_z'],
         params['z_min'],
         '>',
         verbose=params['verbose']
     )
-    dat = wl_cat.cut_data(
+    dat = cat_wl.cut_data(
         dat,
         params['key_z'],
         params['z_max'],
@@ -293,7 +293,7 @@ def main(argv=None):
     cdf = ECDF(dat[params['key_logM']])
 
     # Split into two (check whether we get median from before)
-    logM_bounds = wl_cat.y_equi(cdf, params['n_split'])
+    logM_bounds = cat_wl.y_equi(cdf, params['n_split'])
 
     # Add min and max to boundaries
     logM_bounds.insert(0, min(dat[params['key_logM']]))
@@ -403,7 +403,7 @@ def main(argv=None):
         cosmo = defaults.get_cosmo_default()
 
         # Source redshift distribution and distances
-        z_source, nz_source, _ = wl_cat.read_dndz(params['dndz_source_path'])
+        z_source, nz_source, _ = cat_csu.read_dndz(params['dndz_source_path'])
         a_source = 1 / (1 + z_source)
         d_ang_source = cosmo.angular_diameter_distance(a_source)
 
@@ -438,7 +438,7 @@ def main(argv=None):
                 #a_lens = 1 / (1 + z)
                 #d_ang_lens = cosmo.angular_diameter_distance(a_lens)
                 d_ang_lens_spline = d_ang_lens_interp(z)
-                sig_crit_m1_eff = cs_cosmo.sigma_crit_m1_eff(
+                sig_crit_m1_eff = cosmo_csu.sigma_crit_m1_eff(
                     z,
                     z_source_rebin,
                     nz_source_rebin,
@@ -599,7 +599,7 @@ def main(argv=None):
         cols = []
         for key in t.keys():
             cols.append(fits.Column(name=key, array=t[key], format='E'))
-        cs_cat.write_fits_BinTable_file(cols, out_name)
+        cat_csu.write_fits_BinTable_file(cols, out_name)
 
     return 0
 
