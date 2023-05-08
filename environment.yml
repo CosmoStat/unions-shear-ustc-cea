@@ -7,5 +7,4 @@ dependencies:
   - pip:
     - -r requirements.txt
   - pyccl
-  - fitsio
   - parallel
