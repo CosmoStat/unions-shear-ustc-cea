@@ -64,7 +64,7 @@ def params_default():
     # Parameters which are not the default, which is ``str``
     types = {
         'theta_min_fit': 'float',
-        'theta_min_fit': 'float',
+        'theta_max_fit': 'float',
         'n_split_max': 'int',
         'n_cpu': 'int',
         'physical': 'bool',
