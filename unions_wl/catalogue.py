@@ -143,6 +143,10 @@ def get_ngcorr_data(
         print(f'Error while reading treecorr input file {path}')
         raise
 
+    print("MKDEBUG")
+    import pdb
+    pdb.set_trace()
+
     return ng
 
 

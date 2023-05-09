@@ -74,10 +74,10 @@ def params_default():
     help_strings = {
         'model_type': 'model type, \`linear\` or \`hod\`, default=\`{}\`',
         'theta_min_fit': (
-            'smallest angular scale for fit, in arcmin/Mpc, default={}'
+            'smallest angular scale for fit, in arcmin or Mpc, default={}'
         ),
         'theta_max_fit': (
-            'largest angular scale for fit, in arcmin/Mpc, default={}'
+            'largest angular scale for fit, in arcmin or Mpc, default={}'
         ),
         'n_split_max': 'maximum number of black-hole mass bins, default={}',
         'n_cpu': 'number of CPUs for parallel processing, default={}',

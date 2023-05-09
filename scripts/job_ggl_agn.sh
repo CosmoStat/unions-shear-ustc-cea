@@ -324,16 +324,16 @@ function compare_to_theory() {
 rm -f log_job.sh
 
 # Set links to data files
-#create_links $AGN
+create_links $AGN
 
 # Transform AGN files
-#agn_txt2fits
+agn_txt2fits
 
 # Select AGNs in UNIONS footprint
 footprint
 
 # Split AGNs into redshift bins
-#split_sample
+split_sample
 
 # Compute correlations
 compute_ng
