@@ -347,7 +347,7 @@ def g_t_model(params, x_data, extra):
             integr_method='FFTlog',
         )
     else:
-        y_model, _, _ = theory.gamma_t_theo_phys(
+        y_model = theory.gamma_t_theo_phys(
             x_data,
             cosmo,
             (z_centers['lens'], nz['lens']),
