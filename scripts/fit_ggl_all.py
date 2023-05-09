@@ -269,7 +269,7 @@ def plot_data_only(ng, n_split_arr, weight, shapes, physical):
                 if not physical:
                     this_x = ng[n_split][idx][sh].meanr
                 else:
-                    this_x = ng[n_split][idx][sh].r_nom
+                    this_x = ng[n_split][idx][sh].rnom
 
                 x.append(this_x * my_fac)
                 my_fac *= fac
@@ -429,7 +429,7 @@ def set_args_minimizer(
                         x = ng[n_split][idx][sh].meanr
                     else:
                         # in Mpc
-                        x = ng[n_split][idx][sh].r_nom
+                        x = ng[n_split][idx][sh].rnom
 
                     y = ng[n_split][idx][sh].xi
                     err = np.sqrt(ng[n_split][idx][sh].varxi)
@@ -465,7 +465,7 @@ def get_scales_pl(ng, n_split_arr, shapes):
                     # scales in arcmin
                     x = ng[n_split][idx][sh].meanr
                 else:
-                    x = ng[n_split][idx][sh].r_nom
+                    x = ng[n_split][idx][sh].rnom
 
                 x_plot[n_split][idx][sh] = (
                     np.geomspace(
@@ -619,7 +619,7 @@ def plot_data_with_fits(
                     if not physical:
                         this_x = ng[n_split][idx][sh].meanr
                     else:
-                        this_x = ng[n_split][idx][sh].r_nom
+                        this_x = ng[n_split][idx][sh].rnom
 
                     x.append(this_x * my_fac)
                     my_fac *= fac
