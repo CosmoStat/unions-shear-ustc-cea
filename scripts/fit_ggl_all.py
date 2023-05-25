@@ -24,11 +24,12 @@ import pyccl as ccl
 from lmfit import minimize, Parameters, fit_report
 
 from unions_wl import theory
-from unions_wl import catalogue as cat
+from unions_wl import catalogue as cat_wl
 from unions_wl import defaults
 
 from cs_util import plots
 from cs_util import logging
+from cs_util import cat as cat_csu
 
 import treecorr
 
@@ -63,7 +64,7 @@ def params_default():
     # Parameters which are not the default, which is ``str``
     types = {
         'theta_min_fit': 'float',
-        'theta_min_fit': 'float',
+        'theta_max_fit': 'float',
         'n_split_max': 'int',
         'n_cpu': 'int',
         'physical': 'bool',
@@ -73,10 +74,10 @@ def params_default():
     help_strings = {
         'model_type': 'model type, \`linear\` or \`hod\`, default=\`{}\`',
         'theta_min_fit': (
-            'smallest angular scale for fit, in arcmin/Mpc, default={}'
+            'smallest angular scale for fit, in arcmin or Mpc, default={}'
         ),
         'theta_max_fit': (
-            'largest angular scale for fit, in arcmin/Mpc, default={}'
+            'largest angular scale for fit, in arcmin or Mpc, default={}'
         ),
         'n_split_max': 'maximum number of black-hole mass bins, default={}',
         'n_cpu': 'number of CPUs for parallel processing, default={}',
@@ -196,7 +197,7 @@ def read_z_data(n_split_arr, weight, shapes, blinds):
         for idx in range(n_split):
             dndz_path = f'hist_z_{idx}_n_split_{n_split}_{weight}.txt'
             z_centers[sample][n_split][idx], nz[sample][n_split][idx], _ = (
-                cat.read_dndz(dndz_path)
+                cat_csu.read_dndz(dndz_path)
             )
 
     # bg redshift distribution
@@ -208,7 +209,7 @@ def read_z_data(n_split_arr, weight, shapes, blinds):
         for blind in blinds:
             dndz_path = f'dndz_{sh}_{blind}.txt'
             z_centers[sample][sh][blind], nz[sample][sh][blind], _ = (
-                cat.read_dndz(dndz_path)
+                cat_csu.read_dndz(dndz_path)
             )
 
     return z_centers, nz
@@ -227,7 +228,7 @@ def read_correlation_data(n_split_arr, weight, shapes):
                 ng_path = (
                     f'{sh}/ggl_agn_{idx}_n_split_{n_split}_{weight}.fits'
                 )
-                ng[n_split][idx][sh] = cat.get_ngcorr_data(ng_path)
+                ng[n_split][idx][sh] = cat_wl.get_ngcorr_data(ng_path)
 
     return ng
 
@@ -268,7 +269,7 @@ def plot_data_only(ng, n_split_arr, weight, shapes, physical):
                 if not physical:
                     this_x = ng[n_split][idx][sh].meanr
                 else:
-                    this_x = ng[n_split][idx][sh].r_nom
+                    this_x = ng[n_split][idx][sh].rnom
 
                 x.append(this_x * my_fac)
                 my_fac *= fac
@@ -346,7 +347,7 @@ def g_t_model(params, x_data, extra):
             integr_method='FFTlog',
         )
     else:
-        y_model, _, _ = theory.gamma_t_theo_phys(
+        y_model = theory.gamma_t_theo_phys(
             x_data,
             cosmo,
             (z_centers['lens'], nz['lens']),
@@ -428,7 +429,7 @@ def set_args_minimizer(
                         x = ng[n_split][idx][sh].meanr
                     else:
                         # in Mpc
-                        x = ng[n_split][idx][sh].r_nom
+                        x = ng[n_split][idx][sh].rnom
 
                     y = ng[n_split][idx][sh].xi
                     err = np.sqrt(ng[n_split][idx][sh].varxi)
@@ -464,7 +465,7 @@ def get_scales_pl(ng, n_split_arr, shapes):
                     # scales in arcmin
                     x = ng[n_split][idx][sh].meanr
                 else:
-                    x = ng[n_split][idx][sh].r_nom
+                    x = ng[n_split][idx][sh].rnom
 
                 x_plot[n_split][idx][sh] = (
                     np.geomspace(
@@ -618,7 +619,7 @@ def plot_data_with_fits(
                     if not physical:
                         this_x = ng[n_split][idx][sh].meanr
                     else:
-                        this_x = ng[n_split][idx][sh].r_nom
+                        this_x = ng[n_split][idx][sh].rnom
 
                     x.append(this_x * my_fac)
                     my_fac *= fac

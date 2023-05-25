@@ -2,10 +2,11 @@ name: unions
 channels:
   - conda-forge
 dependencies:
+  - fitsio
+  - joblib
   - python==3.8
   - pip>=21
   - pip:
     - -r requirements.txt
   - pyccl
-  - fitsio
   - parallel

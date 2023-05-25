@@ -21,11 +21,12 @@ from optparse import OptionParser
 import pyccl as ccl
 
 from unions_wl import theory
-from unions_wl import catalogue as cat
+from unions_wl import catalogue as cat_wl
 from unions_wl import defaults
 
 from cs_util import logging
 from cs_util import plots
+from cs_util import cat as cat_csu
 
 
 def params_default():
@@ -211,7 +212,7 @@ def main(argv=None):
     nz = {}
     for sample in ('lens', 'source'):
         file_path = params[f'dndz_{sample}_path']
-        z_centers[sample], nz[sample], _ = cat.read_dndz(file_path)
+        z_centers[sample], nz[sample], _ = cat_csu.read_dndz(file_path)
 
     # Tangential shear
 
@@ -260,7 +261,7 @@ def main(argv=None):
 
     # Write angular power spectrum (for testing)
     if params['out_cls_base']:
-        cat.write_cls(f'{params["out_cls_base"]}.txt', ell, cls)
+        cat_wl.write_cls(f'{params["out_cls_base"]}.txt', ell, cls)
         plots.plot_data_1d(
             [ell],
             [cls],
@@ -275,7 +276,7 @@ def main(argv=None):
 
 
     # Read treecorr ng correlation data
-    ng = cat.get_ngcorr_data(
+    ng = cat_wl.get_ngcorr_data(
         params['corr_path'],
         theta_min=params['theta_min'],
         theta_max=params['theta_max'],
