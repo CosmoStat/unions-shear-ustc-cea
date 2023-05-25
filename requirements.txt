@@ -6,5 +6,6 @@ lmfit
 numpy
 matplotlib
 statsmodels
+tqdm
 treecorr
 uncertainties
