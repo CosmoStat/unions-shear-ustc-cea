@@ -23,6 +23,7 @@ from scipy.interpolate import interp1d
 
 from astropy.io import fits
 from astropy import units
+from astropy.stats import jackknife_stats
 
 import treecorr
 
@@ -41,6 +42,10 @@ class ng_essentials(object):
         self.xi_im = np.zeros(n_bin)
         self.weight = np.zeros(n_bin)
         self.npairs = np.zeros(n_bin)
+
+        # For jackknife variance
+        self.varxi = np.zeros(n_bin)
+        self.xi_arr = [np.zeros(n_bin)]
 
     def copy_from(self, ng):
 
@@ -61,6 +66,7 @@ class ng_essentials(object):
             ng.xi_im[jdx] = self.xi_im[jdx]
             ng.weight[jdx] = self.weight[jdx]
             ng.npairs[jdx] = self.npairs[jdx]
+            ng.varxi[jdx] = self.varxi[jdx]
 
     def difference(self, ng_min, ng_sub):
 
@@ -76,6 +82,8 @@ class ng_essentials(object):
             self.meanlogr[jdx] = ng_min.meanlogr[jdx] - ng_sub.meanlogr[jdx]
 
             self.xi[jdx] = ng_min.xi[jdx] - ng_sub.xi[jdx]
+            if jdx == 0:
+                print(self.xi[jdx])
             self.xi_im[jdx] = ng_min.xi_im[jdx] - ng_sub.xi_im[jdx]
             self.npairs[jdx] = ng_min.npairs[jdx] - ng_sub.npairs[jdx]
 
@@ -85,6 +93,9 @@ class ng_essentials(object):
         for jdx in range(len(self.meanr)):
             if self.meanr[jdx] > 0:
                 self.meanr[jdx] = self.meanr[jdx] / self.weight[jdx]
+
+        # Jackknife array
+        self.xi_arr.append(self.xi)
 
     def add(self, ng_sum):
 
@@ -117,6 +128,8 @@ class ng_essentials(object):
         self.weight += get_interp(x_new, x, ng.weight)
         self.npairs += get_interp(x_new, x, ng.npairs)
 
+        # Jackknife array
+        self.xi_arr.append(get_interp(x_new, x, ng.xi))
 
     def normalise(self, n_bin_fac=1):
 
@@ -130,6 +143,31 @@ class ng_essentials(object):
 
         self.weight *= n_bin_fac
         self.npairs *= n_bin_fac
+
+    def jackknife(self, all_ng):
+
+        for jdx in range(len(self.meanr)):
+            xi_arr = []
+            for ng in all_ng:
+                xi_arr.append(ng.xi[jdx])
+
+            xi_arr = np.array(xi_arr)
+            test_statistic = lambda x: (np.mean(x), np.var(x))
+            idx_nonzero = np.where(xi_arr != 0)[0]
+            xi_arr = xi_arr[idx_nonzero]
+            if jdx == 0:
+                print(xi_arr)
+            estimate, bias, stderr, conf_interval = jackknife_stats(
+                xi_arr,
+                test_statistic,
+            )
+            print('mean before N', estimate[0])
+            estimate[0] /= self.weight[jdx]
+            estimate[1] /= self.weight[jdx] ** 2
+
+            print("Jackknife results angular bin #", jdx)
+            print('all', estimate, bias, stderr, conf_interval)
+            self.varxi[jdx] = estimate[1]
 
     def set_units_scales(self, sep_units):
 
@@ -450,7 +488,7 @@ def get_interp(x_new, x, y):
             (idx != 0 and x[idx] < x_new[0])
             or (idx != n_bins - 1 and x[idx] > x_upper_new)
         ):
-            print(f'Warning: x[{idx}]={x[idx]:.3g} outside range {x_new[0]:.3g} ... {x_upper_new:.3g}')
+            #print(f'Warning: x[{idx}]={x[idx]:.3g} outside range {x_new[0]:.3g} ... {x_upper_new:.3g}')
             continue
 
         idx_tmp = np.searchsorted(x_new, x_val, side='left')
@@ -493,6 +531,7 @@ def ng_stack(TreeCorrConfig, all_ng, all_d_ang, n_bin_fac=1):
 
     ng_final.set_units_scales(sep_units)
     ng_final.normalise(n_bin_fac=n_bin_fac)
+    ng_final.jackknife(all_ng)
 
     ng_final.copy_to(ng_comb)
 
@@ -662,15 +701,12 @@ def main(argv=None):
             ng_diff = ng_essentials(n_theta)
             ng_diff.difference(ng, ng_prev)
 
-            # Count (and add) only those will full correlations across scales
-            if True:
-            #if all(ng_diff.weight > 0):
-            #if any(ng_diff.weight > 0):
-                n_corr += 1
+            # Count (and add) correlations
+            n_corr += 1
 
-                all_ng.append(ng_diff)
-                # Update previous cumulative correlations
-                ng_essentials.copy_from(ng_prev, ng)
+            all_ng.append(ng_diff)
+            # Update previous cumulative correlations
+            ng_essentials.copy_from(ng_prev, ng)
 
         if params['stack'] == 'cross':
             if params['verbose']:
