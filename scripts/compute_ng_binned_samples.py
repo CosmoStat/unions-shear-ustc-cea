@@ -45,7 +45,7 @@ class ng_essentials(object):
 
         # For jackknife variance
         self.varxi = np.zeros(n_bin)
-        self.xi_arr = [np.zeros(n_bin)]
+        self.xi_arr = []
 
     def copy_from(self, ng):
 
@@ -82,8 +82,6 @@ class ng_essentials(object):
             self.meanlogr[jdx] = ng_min.meanlogr[jdx] - ng_sub.meanlogr[jdx]
 
             self.xi[jdx] = ng_min.xi[jdx] - ng_sub.xi[jdx]
-            if jdx == 0:
-                print(self.xi[jdx])
             self.xi_im[jdx] = ng_min.xi_im[jdx] - ng_sub.xi_im[jdx]
             self.npairs[jdx] = ng_min.npairs[jdx] - ng_sub.npairs[jdx]
 
@@ -95,7 +93,7 @@ class ng_essentials(object):
                 self.meanr[jdx] = self.meanr[jdx] / self.weight[jdx]
 
         # Jackknife array
-        self.xi_arr.append(self.xi)
+        #self.xi_arr.append(self.xi)
 
     def add(self, ng_sum):
 
@@ -123,13 +121,18 @@ class ng_essentials(object):
         self.meanr += get_interp(x_new, x, ng.meanr * ng.weight)
 
         self.meanlogr += get_interp(x_new, x, ng.meanlogr)
-        self.xi += get_interp(x_new, x, ng.xi)
+        xi_new = get_interp(x_new, x, ng.xi)
+        self.xi += xi_new
         self.xi_im += get_interp(x_new, x, ng.xi_im)
         self.weight += get_interp(x_new, x, ng.weight)
         self.npairs += get_interp(x_new, x, ng.npairs)
 
         # Jackknife array
-        self.xi_arr.append(get_interp(x_new, x, ng.xi))
+        # The following gives very biased mean, maybe because
+        # of many zeros in weights?
+        #self.xi_arr.append(np.nan_to_num(xi_new / w_new))
+
+        self.xi_arr.append(xi_new)
 
     def normalise(self, n_bin_fac=1):
 
@@ -146,27 +149,18 @@ class ng_essentials(object):
 
     def jackknife(self, all_ng):
 
+        xi_arr_all = np.array(self.xi_arr)
         for jdx in range(len(self.meanr)):
-            xi_arr = []
-            for ng in all_ng:
-                xi_arr.append(ng.xi[jdx])
 
-            xi_arr = np.array(xi_arr)
+            my_xi = xi_arr_all[:, jdx] / self.weight[jdx]
+            my_xi *= len(my_xi)
             test_statistic = lambda x: (np.mean(x), np.var(x))
-            idx_nonzero = np.where(xi_arr != 0)[0]
-            xi_arr = xi_arr[idx_nonzero]
-            if jdx == 0:
-                print(xi_arr)
             estimate, bias, stderr, conf_interval = jackknife_stats(
-                xi_arr,
+                my_xi,
                 test_statistic,
             )
-            print('mean before N', estimate[0])
-            estimate[0] /= self.weight[jdx]
-            estimate[1] /= self.weight[jdx] ** 2
 
-            print("Jackknife results angular bin #", jdx)
-            print('all', estimate, bias, stderr, conf_interval)
+            #print("Jackknife mean, std, sqrt(std) at bin #", jdx, estimate[0], estimate[1], np.sqrt(estimate[1]))
             self.varxi[jdx] = estimate[1]
 
     def set_units_scales(self, sep_units):
@@ -715,8 +709,8 @@ def main(argv=None):
             ng.finalize(varg)
 
         if n_corr == 0:
-            raise ValueError('No non-zero correlations computed')
-        print(f'Computed {n_corr} non-zero correlations')
+            raise ValueError('No correlations computed')
+        print(f'Computed {n_corr} correlations')
 
     else:
 
