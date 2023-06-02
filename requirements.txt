@@ -3,6 +3,7 @@ cs_util
 healpy
 jinja2==3.0
 lmfit
+importlib_metadata
 numpy
 matplotlib
 statsmodels

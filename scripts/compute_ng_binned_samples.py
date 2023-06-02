@@ -106,6 +106,8 @@ class ng_essentials(object):
         self.weight += ng_sum.weight
         self.npairs += ng_sum.npairs
 
+        self.xi_arr.append(ng_sum.xi)
+
     def add_physical(self, ng, r, d_ang, sep_units):
 
         # Original angular x values [rad]
@@ -160,7 +162,7 @@ class ng_essentials(object):
                 test_statistic,
             )
 
-            #print("Jackknife mean, std, sqrt(std) at bin #", jdx, estimate[0], estimate[1], np.sqrt(estimate[1]))
+            print("Jackknife mean, std, sqrt(std) at bin #", jdx, estimate[0], estimate[1], np.sqrt(estimate[1]))
             self.varxi[jdx] = estimate[1]
 
     def set_units_scales(self, sep_units):
@@ -487,7 +489,16 @@ def get_interp(x_new, x, y):
 
         idx_tmp = np.searchsorted(x_new, x_val, side='left')
         if idx_tmp == len(x_new): continue
-        if idx_tmp > 0 and (idx_tmp == len(x_new) or math.fabs(x_val - x_new[idx_tmp - 1]) < math.fabs(x_val - x_new[idx_tmp])):
+        if (
+            (idx_tmp > 0)
+            and (
+                idx_tmp == len(x_new)
+                or (
+                    math.fabs(x_val - x_new[idx_tmp - 1])
+                    < math.fabs(x_val - x_new[idx_tmp])
+                )
+            )
+        ):
             idx_new = idx_tmp - 1
         else:
             idx_new = idx_tmp
