@@ -10,6 +10,7 @@ Compute GGL (ng-correlation) between two (binned) input catalogues.
 """
 
 import sys
+import os
 
 from copy import copy
 
@@ -40,12 +41,14 @@ class ng_essentials(object):
         self.meanlogr = np.zeros(n_bin)
         self.xi = np.zeros(n_bin)
         self.xi_im = np.zeros(n_bin)
+        self.varxi = np.zeros(n_bin)
         self.weight = np.zeros(n_bin)
         self.npairs = np.zeros(n_bin)
 
-        # For jackknife variance
-        self.varxi = np.zeros(n_bin)
-        self.xi_arr = []
+        # For jackknife resamples
+        self.xi_jk = np.zeros(n_bin)
+        self.varxi_jk = np.zeros(n_bin)
+        self.xi_jk_arr = []
 
     def copy_from(self, ng):
 
@@ -57,16 +60,21 @@ class ng_essentials(object):
             self.weight[jdx] = ng.weight[jdx]
             self.npairs[jdx] = ng.npairs[jdx]
 
-    def copy_to(self, ng):
+    def copy_to(self, ng, jackknife=False):
 
         for jdx in range(len(ng.meanr)):
             ng.meanr[jdx] = self.meanr[jdx]
             ng.meanlogr[jdx] = self.meanlogr[jdx]
-            ng.xi[jdx] = self.xi[jdx]
+            if not jackknife:
+                ng.xi[jdx] = self.xi[jdx]
+                ng.varxi[jdx] = self.varxi[jdx]
+            else:
+                ng.xi[jdx] = self.xi_jk[jdx]
+                ng.varxi[jdx] = self.varxi_jk[jdx]
+            # MKDEBUG TODO xi_im
             ng.xi_im[jdx] = self.xi_im[jdx]
             ng.weight[jdx] = self.weight[jdx]
             ng.npairs[jdx] = self.npairs[jdx]
-            ng.varxi[jdx] = self.varxi[jdx]
 
     def difference(self, ng_min, ng_sub):
 
@@ -92,9 +100,6 @@ class ng_essentials(object):
             if self.meanr[jdx] > 0:
                 self.meanr[jdx] = self.meanr[jdx] / self.weight[jdx]
 
-        # Jackknife array
-        #self.xi_arr.append(self.xi)
-
     def add(self, ng_sum):
 
         for jdx in range(len(self.meanr)):
@@ -106,7 +111,7 @@ class ng_essentials(object):
         self.weight += ng_sum.weight
         self.npairs += ng_sum.npairs
 
-        self.xi_arr.append(ng_sum.xi)
+        self.xi_jk_arr.append(ng_sum.xi)
 
     def add_physical(self, ng, r, d_ang, sep_units):
 
@@ -132,9 +137,9 @@ class ng_essentials(object):
         # Jackknife array
         # The following gives very biased mean, maybe because
         # of many zeros in weights?
-        #self.xi_arr.append(np.nan_to_num(xi_new / w_new))
+        #self.xi_jk_arr.append(np.nan_to_num(xi_new / w_new))
 
-        self.xi_arr.append(xi_new)
+        self.xi_jk_arr.append(xi_new)
 
     def normalise(self, n_bin_fac=1):
 
@@ -151,10 +156,10 @@ class ng_essentials(object):
 
     def jackknife(self, all_ng):
 
-        xi_arr_all = np.array(self.xi_arr)
+        xi_jk_arr_all = np.array(self.xi_jk_arr)
         for jdx in range(len(self.meanr)):
 
-            my_xi = xi_arr_all[:, jdx] / self.weight[jdx]
+            my_xi = xi_jk_arr_all[:, jdx] / self.weight[jdx]
             my_xi *= len(my_xi)
             test_statistic = lambda x: (np.mean(x), np.var(x))
             estimate, bias, stderr, conf_interval = jackknife_stats(
@@ -163,7 +168,8 @@ class ng_essentials(object):
             )
 
             print("Jackknife mean, std, sqrt(std) at bin #", jdx, estimate[0], estimate[1], np.sqrt(estimate[1]))
-            self.varxi[jdx] = estimate[1]
+            self.xi_jk[jdx] = estimate[0]
+            self.varxi_jk[jdx] = estimate[1]
 
     def set_units_scales(self, sep_units):
 
@@ -206,9 +212,10 @@ def params_default():
         'theta_min': 0.1,
         'theta_max': 200,
         'n_theta': 10,
-        'physical' : False,
+        'scales' : 'angular',
         'stack': 'auto',
         'out_path' : './ggl_unions_sdss_matched.txt',
+        'out_path_jk' : None,
         'n_cpu': 1,
         'verbose': False,
     }
@@ -217,7 +224,6 @@ def params_default():
     types = {
         'sign_e1': 'int',
         'sign_e2': 'int',
-        'physical': 'bool',
         'n_theta': 'int',
         'n_cpu': 'int',
     }
@@ -236,13 +242,14 @@ def params_default():
         'key_e2': 'second ellipticity component column name, default={}',
         'sign_e1': 'first ellipticity multiplier (sign), default={}',
         'sign_e2': 'first ellipticity multiplier (sign), default={}',
-        'key_z': 'foreground redshift column name (if physical), default={}',
+        'key_z': 'foreground redshift column name (if scales=physical), default={}',
         'theta_min': 'minimum angular scale, default={}',
         'theta_max': 'maximum angular scale, default={}',
         'n_theta': 'number of angular scales, default={}',
-        'physical' : '2D coordinates are physical [Mpc]',
+        'scales' : '2D coordinates (scales) are angular (arcmin) or physical [Mpc], default={}',
         'stack' : 'allowed are auto, cross, post, default={}',
         'out_path' : 'output path, default={}',
+        'out_path_jk' : 'output path, default=<out_path>_jk.<ext>',
         'n_cpu' : 'number of CPUs for parallel processing, default={}',
     }
 
@@ -513,6 +520,7 @@ def ng_stack(TreeCorrConfig, all_ng, all_d_ang, n_bin_fac=1):
 
     # Initialise combined correlation objects
     ng_comb = treecorr.NGCorrelation(TreeCorrConfig)                 
+    ng_comb_jk = treecorr.NGCorrelation(TreeCorrConfig)                 
 
     n_bins = len(ng_comb.rnom)
     sep_units = ng_comb.sep_units
@@ -538,13 +546,16 @@ def ng_stack(TreeCorrConfig, all_ng, all_d_ang, n_bin_fac=1):
     ng_final.normalise(n_bin_fac=n_bin_fac)
     ng_final.jackknife(all_ng)
 
+    # Copy results to NGCorrelation instances
     ng_final.copy_to(ng_comb)
+    ng_final.copy_to(ng_comb_jk, jackknife=True)
 
     # Angular scales: coordinates need to be attributed at the end
-    ng_comb.meanlogr = (np.exp(ng_comb.meanlogr) * units.rad).to(sep_units).value
-    ng_comb.meanlogr = np.log(ng_comb.meanlogr)
+    for this_ng in [ng_comb, ng_comb_jk]:
+        this_ng.meanlogr = (np.exp(this_ng.meanlogr) * units.rad).to(sep_units).value
+        this_ng.meanlogr = np.log(this_ng.meanlogr)
 
-    return ng_comb 
+    return ng_comb, ng_comb_jk
 
 
 def main(argv=None):
@@ -576,7 +587,7 @@ def main(argv=None):
     #print('MKDEBUG cut to 0.4M')
     #data['bg'] = data['bg'][400_000:600_000]
 
-    print(f'stacking: physical={params["physical"]}, stack={params["stack"]}')
+    print(f'scales={params["scales"]}, stack={params["stack"]}')
 
     n_bin_fac = 1
     print('n_bin_fac = ', n_bin_fac)
@@ -618,7 +629,7 @@ def main(argv=None):
             if params['verbose']:
                 print(f'Using catalog weights for {sample} sample')
 
-    if params['physical']:
+    if params['scales'] == 'physical':
         cosmo = defaults.get_cosmo_default()
         n_theta = params['n_theta'] * n_bin_fac
 
@@ -630,7 +641,7 @@ def main(argv=None):
     for sample in ('fg', 'bg'):
 
         # Split cat into single objects if fg and physical
-        if sample == 'fg' and (params['physical'] or params['stack'] != 'auto'):
+        if sample == 'fg' and (params['scales'] == 'physical' or params['stack'] != 'auto'):
             split = True
         else:
             split = False
@@ -650,7 +661,7 @@ def main(argv=None):
     # Set treecorr config info for correlation
 
     sep_units = 'arcmin'
-    if params['physical']:
+    if params['scales'] == 'physical':
 
         # Angular distances to all objects
         a_arr = 1 / (1 + data['fg'][params['key_z']]) 
@@ -730,7 +741,7 @@ def main(argv=None):
             print('Automatic (treecorr process) stacking of fg objects')
         ng.process(cats['fg'][0], cats['bg'][0], num_threads=params['n_cpu'])
 
-    if params['physical']:
+    if params['scales'] == 'physical':
 
         # Create new config for correlations stacked on physical scales.
         # Use (command-line) input scales but interpret in Mpc
@@ -748,9 +759,11 @@ def main(argv=None):
         # and not cross stacking done
         if params['verbose']:
             print('Post-process (this script) stacking of fg objects')
-        ng = ng_stack(TreeCorrConfig, all_ng, d_ang, n_bin_fac=n_bin_fac)
+        ng, ng_jk = ng_stack(TreeCorrConfig, all_ng, d_ang, n_bin_fac=n_bin_fac)
+    else:
+        ng_jk = None
 
-    # Write to file
+    # Write stack to file
     out_path = params['out_path']
     if params['verbose']:
         print(f'Writing output file {out_path}')
@@ -760,6 +773,22 @@ def main(argv=None):
         file_type=None,
         precision=None,
     )
+
+    # Write stack with jackknife resamples summaries to file
+    if ng_jk:
+        if not params['out_path_jk']:
+            base, ext = os.path.splitext(params['out_path'])
+            out_path_jk = f'{base}_jk{ext}'
+        else:
+            out_path_jk = params['out_path_jk']
+        if params['verbose']:
+            print(f'Writing output file {out_path_jk}')
+        ng_jk.write(
+            out_path_jk,
+            rg=None,
+            file_type=None,
+            precision=None,
+        )
 
     # Fix missing keywords, to prevent subsequent treecorr read error
     if params['stack'] != 'cross':

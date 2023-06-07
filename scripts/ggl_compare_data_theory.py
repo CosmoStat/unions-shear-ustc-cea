@@ -205,7 +205,7 @@ def main(argv=None):
     plt.rcParams['font.size'] = 18
 
     # Default cosmology
-    cosmo = defaults.Cosmology()
+    cosmo = defaults.get_cosmo_default()
 
     # Read redshift distributions
     z_centers = {}
