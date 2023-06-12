@@ -338,7 +338,15 @@ function compare_to_theory() {
         for blind in ${blinds[@]}; do
           for weight in ${weights[@]}; do
 
-              ${bin_path}/ggl_compare_data_theory.py --corr_path $sh/ggl_agn_${c}_n_split_${n_split}_${weight}.fits --dndz_lens_path hist_z_${c}_n_split_${n_split}_${weight}.txt --dndz_source_path dndz_${sh}_${blind}.txt -v --theta_min 0.1 --theta_max 200 --n_theta 10 --bias_1 1.0 --out_base ${sh}/gamma_tx_${c}_n_split_${n_split}_${blind}_${weight} | tee -a log_job.sh
+              ggl_in_path=$sh/ggl_agn_${c}_n_split_${n_split}_${weight}.fits
+              out_base=${sh}/gamma_tx_${c}_n_split_${n_split}_${blind}_${weight}
+              ${bin_path}/ggl_compare_data_theory.py --corr_path $ggl_in_path --dndz_lens_path hist_z_${c}_n_split_${n_split}_${weight}.txt --dndz_source_path dndz_${sh}_${blind}.txt -v --theta_min 0.1 --theta_max 200 --n_theta 10 --bias_1 1.0 --out_base $out_base | tee -a log_job.sh
+
+              ggl_in_path=$sh/ggl_agn_${c}_n_split_${n_split}_${weight}_jk.fits
+              out_base=${sh}/gamma_tx_${c}_n_split_${n_split}_${blind}_${weight}_jk
+              if [ -e $ggl_in_path ]; then
+                ${bin_path}/ggl_compare_data_theory.py --corr_path $ggl_in_path --dndz_lens_path hist_z_${c}_n_split_${n_split}_${weight}.txt --dndz_source_path dndz_${sh}_${blind}.txt -v --theta_min 0.1 --theta_max 200 --n_theta 10 --bias_1 1.0 --out_base $out_base | tee -a log_job.sh
+              fi
 
           done
         done

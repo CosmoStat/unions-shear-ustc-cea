@@ -159,6 +159,7 @@ class ng_essentials(object):
         xi_jk_arr_all = np.array(self.xi_jk_arr)
         for jdx in range(len(self.meanr)):
 
+            # The following lines correct xi by the already included weights
             my_xi = xi_jk_arr_all[:, jdx] / self.weight[jdx]
             my_xi *= len(my_xi)
             test_statistic = lambda x: (np.mean(x), np.var(x))
@@ -167,7 +168,9 @@ class ng_essentials(object):
                 test_statistic,
             )
 
-            print("Jackknife mean, std, sqrt(std) at bin #", jdx, estimate[0], estimate[1], np.sqrt(estimate[1]))
+            # std of samples -> std of mean
+            estimate[1] /= len(my_xi)
+
             self.xi_jk[jdx] = estimate[0]
             self.varxi_jk[jdx] = estimate[1]
 
@@ -796,6 +799,11 @@ def main(argv=None):
         hdu_list[1].header['COORDS'] = 'spherical'
         hdu_list[1].header['metric'] = 'Euclidean'
         hdu_list.writeto(out_path, overwrite=True)
+        if ng_jk:
+            hdu_list = fits.open(out_path_jk)
+            hdu_list[1].header['COORDS'] = 'spherical'
+            hdu_list[1].header['metric'] = 'Euclidean'
+            hdu_list.writeto(out_path_jk, overwrite=True)
 
     return 0
 
