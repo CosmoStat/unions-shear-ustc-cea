@@ -53,7 +53,7 @@ def params_default():
         'theta_min': 0.2,
         'theta_max': 200,
         'n_theta': 20,
-        'physical' : False,
+        'scales' : 'angular',
         'Delta_Sigma' : False,
         'out_base': 'gamma_tx',
         'out_cls_base': None,
@@ -66,7 +66,6 @@ def params_default():
         'theta_min': 'float',
         'theta_max': 'float',
         'n_theta': 'int',
-        'physical': 'bool',
         'Delta_Sigma': 'bool',
     }
 
@@ -79,7 +78,7 @@ def params_default():
         'theta_min': 'minimum angular scale, default={}',
         'theta_max': 'minimum angular scale, default={}',
         'n_theta': 'number of angular scales, default={}',
-        'physical' : '2D coordinates are physical [Mpc], default={}',
+        'scales' : '2D coordinates (scales) are angular (arcmin) or physical [Mpc], default={}',
         'Delta_Sigma' : 'excess surface mass density instead of tangential'
             + ' shear  default={}',
         'out_base': 'output base path, default={}',
@@ -173,7 +172,11 @@ def check_options(options):
         Result of option check. False if invalid option value.                  
                                                                                 
     """                                                                         
-    if options['Delta_Sigma'] and not options['physical']:
+    if options['scales'] not in ('angular', 'physical'):
+        print('Scales (option -s) need to be angular or physical')
+        return False
+
+    if options['Delta_Sigma'] and not options['scales'] == 'physical':
         print('With Delta_Sigma=True physical needs to be True')
         return False
 
@@ -217,7 +220,7 @@ def main(argv=None):
     # Tangential shear
 
     n_theta = 2000
-    if not params['physical']:
+    if params['scales'] == 'angular':
         # Angular scales on input are in arcmin. CCL asks for degree
         theta_min_deg = params['theta_min'] / 60
         theta_max_deg = params['theta_max'] / 60
@@ -239,7 +242,7 @@ def main(argv=None):
         pk_gm_info['model_type'] = 'HOD'
         pk_gm_info['log10_Mmin'] = 11.5
 
-    if not params['physical']:
+    if params['scales'] == 'angular':
         y_theo, ell, cls = theory.gamma_t_theo(
             theta_arr_deg,
             cosmo,
@@ -287,15 +290,22 @@ def main(argv=None):
 
     fac = 1.05
 
-    x = [ng.meanr, ng.meanr * fac, x_data]
     y = [ng.xi, ng.xi_im, y_theo]
     dy = [np.sqrt(ng.varxi)] * 2 + [[]]
     title = 'GGL'
-    if not params['physical']:
-        xlabel = rf'$\theta$ [arcmin]'
+    if params['scales'] == 'angular':
+        if params['verbose']:
+            print('Using angular scales (meanr column in arcmin)')
+        x = [ng.meanr, ng.meanr * fac, x_data]
+        xscale = r'\theta'
+        xunit = 'arcmin'
     else:
-        xlabel = rf'$r$ [Mpc]'
-    ylabel = r'$\gamma_{\rm t}(\theta)$'
+        print('Using physical scales (r_nom column in Mpc)')
+        x = [ng.rnom, ng.rnom * fac, x_data]
+        xscale = 'r'
+        xunit = 'Mpc'
+    xlabel = rf'${xscale}$ [{xunit}]'
+    ylabel = rf'$\gamma_{{\rm t}}({xscale})$'
     ls = ['', '', '-']
     labels = [r'$\gamma_{\rm t}$', r'$\gamma_\times$', 'model']
     colors = ['g', 'r', 'g']
@@ -321,7 +331,7 @@ def main(argv=None):
     y = [y_theo]
     dy = [[]]
     title = 'GGL'
-    if not params['physical']:
+    if params['scales'] == 'angular':
         xlabel = rf'$\theta$ [arcmin]'
     else:
         xlabel = rf'$r$ [Mpc]'

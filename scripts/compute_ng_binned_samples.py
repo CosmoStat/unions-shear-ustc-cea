@@ -327,6 +327,27 @@ def parse_options(p_def, short_options, types, help_strings):
     return options
 
 
+def check_options(options):                                                     
+    """Check command line options.                                              
+                                                                                
+    Parameters                                                                  
+    ----------                                                                  
+    options: tuple                                                              
+        Command line options                                                    
+                                                                                
+    Returns                                                                     
+    -------                                                                     
+    bool                                                                        
+        Result of option check. False if invalid option value.                  
+                                                                                
+    """
+    if options['scales'] not in ('angular', 'physical'):                        
+        print('Scales (option -s) need to be angular or physical')              
+        return False 
+
+    return True
+
+
 def create_treecorr_catalogs(
     positions,
     sample,
@@ -436,8 +457,9 @@ def get_theta_min_max(r_min, r_max, d_ang_arr, sep_units):
 
     # Enlarge range to account for actual scale different from nominal
     # scales, and outside of range
-    theta_min = theta_min / 1.5
-    theta_max = theta_max * 1.5
+    print("MKDEBUG")
+    theta_min = theta_min # / 1.5
+    theta_max = theta_max # * 1.5
 
     print(f'physical to angular scales, r = {r_min}  ... {r_max:} Mpc')
     print(f'physical to angular scales, d_ang = {min(d_ang_arr):.2f}  ... {max(d_ang_arr):.2f} (mean {d_ang_mean:.2f}) Mpc')
@@ -575,6 +597,9 @@ def main(argv=None):
     # Update parameter values
     for key in vars(options):
         params[key] = getattr(options, key)
+
+    if check_options(params) is False:                                          
+        return 1
 
     # Save calling command
     logging.log_command(argv)
