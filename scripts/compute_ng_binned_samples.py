@@ -10,6 +10,7 @@ Compute GGL (ng-correlation) between two (binned) input catalogues.
 """
 
 import sys
+import os
 
 from copy import copy
 
@@ -23,6 +24,7 @@ from scipy.interpolate import interp1d
 
 from astropy.io import fits
 from astropy import units
+from astropy.stats import jackknife_stats
 
 import treecorr
 
@@ -39,8 +41,14 @@ class ng_essentials(object):
         self.meanlogr = np.zeros(n_bin)
         self.xi = np.zeros(n_bin)
         self.xi_im = np.zeros(n_bin)
+        self.varxi = np.zeros(n_bin)
         self.weight = np.zeros(n_bin)
         self.npairs = np.zeros(n_bin)
+
+        # For jackknife resamples
+        self.xi_jk = np.zeros(n_bin)
+        self.varxi_jk = np.zeros(n_bin)
+        self.xi_jk_arr = []
 
     def copy_from(self, ng):
 
@@ -52,12 +60,18 @@ class ng_essentials(object):
             self.weight[jdx] = ng.weight[jdx]
             self.npairs[jdx] = ng.npairs[jdx]
 
-    def copy_to(self, ng):
+    def copy_to(self, ng, jackknife=False):
 
         for jdx in range(len(ng.meanr)):
             ng.meanr[jdx] = self.meanr[jdx]
             ng.meanlogr[jdx] = self.meanlogr[jdx]
-            ng.xi[jdx] = self.xi[jdx]
+            if not jackknife:
+                ng.xi[jdx] = self.xi[jdx]
+                ng.varxi[jdx] = self.varxi[jdx]
+            else:
+                ng.xi[jdx] = self.xi_jk[jdx]
+                ng.varxi[jdx] = self.varxi_jk[jdx]
+            # MKDEBUG TODO xi_im
             ng.xi_im[jdx] = self.xi_im[jdx]
             ng.weight[jdx] = self.weight[jdx]
             ng.npairs[jdx] = self.npairs[jdx]
@@ -97,6 +111,8 @@ class ng_essentials(object):
         self.weight += ng_sum.weight
         self.npairs += ng_sum.npairs
 
+        self.xi_jk_arr.append(ng_sum.xi)
+
     def add_physical(self, ng, r, d_ang, sep_units):
 
         # Original angular x values [rad]
@@ -112,11 +128,18 @@ class ng_essentials(object):
         self.meanr += get_interp(x_new, x, ng.meanr * ng.weight)
 
         self.meanlogr += get_interp(x_new, x, ng.meanlogr)
-        self.xi += get_interp(x_new, x, ng.xi)
+        xi_new = get_interp(x_new, x, ng.xi)
+        self.xi += xi_new
         self.xi_im += get_interp(x_new, x, ng.xi_im)
         self.weight += get_interp(x_new, x, ng.weight)
         self.npairs += get_interp(x_new, x, ng.npairs)
 
+        # Jackknife array
+        # The following gives very biased mean, maybe because
+        # of many zeros in weights?
+        #self.xi_jk_arr.append(np.nan_to_num(xi_new / w_new))
+
+        self.xi_jk_arr.append(xi_new)
 
     def normalise(self, n_bin_fac=1):
 
@@ -130,6 +153,26 @@ class ng_essentials(object):
 
         self.weight *= n_bin_fac
         self.npairs *= n_bin_fac
+
+    def jackknife(self, all_ng):
+
+        xi_jk_arr_all = np.array(self.xi_jk_arr)
+        for jdx in range(len(self.meanr)):
+
+            # The following lines correct xi by the already included weights
+            my_xi = xi_jk_arr_all[:, jdx] / self.weight[jdx]
+            my_xi *= len(my_xi)
+            test_statistic = lambda x: (np.mean(x), np.var(x))
+            estimate, bias, stderr, conf_interval = jackknife_stats(
+                my_xi,
+                test_statistic,
+            )
+
+            # std of samples -> std of mean
+            estimate[1] /= len(my_xi)
+
+            self.xi_jk[jdx] = estimate[0]
+            self.varxi_jk[jdx] = estimate[1]
 
     def set_units_scales(self, sep_units):
 
@@ -172,9 +215,10 @@ def params_default():
         'theta_min': 0.1,
         'theta_max': 200,
         'n_theta': 10,
-        'physical' : False,
+        'scales' : 'angular',
         'stack': 'auto',
         'out_path' : './ggl_unions_sdss_matched.txt',
+        'out_path_jk' : None,
         'n_cpu': 1,
         'verbose': False,
     }
@@ -183,7 +227,6 @@ def params_default():
     types = {
         'sign_e1': 'int',
         'sign_e2': 'int',
-        'physical': 'bool',
         'n_theta': 'int',
         'n_cpu': 'int',
     }
@@ -202,13 +245,14 @@ def params_default():
         'key_e2': 'second ellipticity component column name, default={}',
         'sign_e1': 'first ellipticity multiplier (sign), default={}',
         'sign_e2': 'first ellipticity multiplier (sign), default={}',
-        'key_z': 'foreground redshift column name (if physical), default={}',
+        'key_z': 'foreground redshift column name (if scales=physical), default={}',
         'theta_min': 'minimum angular scale, default={}',
         'theta_max': 'maximum angular scale, default={}',
         'n_theta': 'number of angular scales, default={}',
-        'physical' : '2D coordinates are physical [Mpc]',
+        'scales' : '2D coordinates (scales) are angular (arcmin) or physical [Mpc], default={}',
         'stack' : 'allowed are auto, cross, post, default={}',
         'out_path' : 'output path, default={}',
+        'out_path_jk' : 'output path, default=<out_path>_jk.<ext>',
         'n_cpu' : 'number of CPUs for parallel processing, default={}',
     }
 
@@ -281,6 +325,27 @@ def parse_options(p_def, short_options, types, help_strings):
     options, args = parser.parse_args()
 
     return options
+
+
+def check_options(options):                                                     
+    """Check command line options.                                              
+                                                                                
+    Parameters                                                                  
+    ----------                                                                  
+    options: tuple                                                              
+        Command line options                                                    
+                                                                                
+    Returns                                                                     
+    -------                                                                     
+    bool                                                                        
+        Result of option check. False if invalid option value.                  
+                                                                                
+    """
+    if options['scales'] not in ('angular', 'physical'):                        
+        print('Scales (option -s) need to be angular or physical')              
+        return False 
+
+    return True
 
 
 def create_treecorr_catalogs(
@@ -392,8 +457,9 @@ def get_theta_min_max(r_min, r_max, d_ang_arr, sep_units):
 
     # Enlarge range to account for actual scale different from nominal
     # scales, and outside of range
-    theta_min = theta_min / 1.5
-    theta_max = theta_max * 1.5
+    print("MKDEBUG")
+    theta_min = theta_min # / 1.5
+    theta_max = theta_max # * 1.5
 
     print(f'physical to angular scales, r = {r_min}  ... {r_max:} Mpc')
     print(f'physical to angular scales, d_ang = {min(d_ang_arr):.2f}  ... {max(d_ang_arr):.2f} (mean {d_ang_mean:.2f}) Mpc')
@@ -450,12 +516,21 @@ def get_interp(x_new, x, y):
             (idx != 0 and x[idx] < x_new[0])
             or (idx != n_bins - 1 and x[idx] > x_upper_new)
         ):
-            print(f'Warning: x[{idx}]={x[idx]:.3g} outside range {x_new[0]:.3g} ... {x_upper_new:.3g}')
+            #print(f'Warning: x[{idx}]={x[idx]:.3g} outside range {x_new[0]:.3g} ... {x_upper_new:.3g}')
             continue
 
         idx_tmp = np.searchsorted(x_new, x_val, side='left')
         if idx_tmp == len(x_new): continue
-        if idx_tmp > 0 and (idx_tmp == len(x_new) or math.fabs(x_val - x_new[idx_tmp - 1]) < math.fabs(x_val - x_new[idx_tmp])):
+        if (
+            (idx_tmp > 0)
+            and (
+                idx_tmp == len(x_new)
+                or (
+                    math.fabs(x_val - x_new[idx_tmp - 1])
+                    < math.fabs(x_val - x_new[idx_tmp])
+                )
+            )
+        ):
             idx_new = idx_tmp - 1
         else:
             idx_new = idx_tmp
@@ -470,6 +545,7 @@ def ng_stack(TreeCorrConfig, all_ng, all_d_ang, n_bin_fac=1):
 
     # Initialise combined correlation objects
     ng_comb = treecorr.NGCorrelation(TreeCorrConfig)                 
+    ng_comb_jk = treecorr.NGCorrelation(TreeCorrConfig)                 
 
     n_bins = len(ng_comb.rnom)
     sep_units = ng_comb.sep_units
@@ -493,14 +569,18 @@ def ng_stack(TreeCorrConfig, all_ng, all_d_ang, n_bin_fac=1):
 
     ng_final.set_units_scales(sep_units)
     ng_final.normalise(n_bin_fac=n_bin_fac)
+    ng_final.jackknife(all_ng)
 
+    # Copy results to NGCorrelation instances
     ng_final.copy_to(ng_comb)
+    ng_final.copy_to(ng_comb_jk, jackknife=True)
 
     # Angular scales: coordinates need to be attributed at the end
-    ng_comb.meanlogr = (np.exp(ng_comb.meanlogr) * units.rad).to(sep_units).value
-    ng_comb.meanlogr = np.log(ng_comb.meanlogr)
+    for this_ng in [ng_comb, ng_comb_jk]:
+        this_ng.meanlogr = (np.exp(this_ng.meanlogr) * units.rad).to(sep_units).value
+        this_ng.meanlogr = np.log(this_ng.meanlogr)
 
-    return ng_comb 
+    return ng_comb, ng_comb_jk
 
 
 def main(argv=None):
@@ -518,6 +598,9 @@ def main(argv=None):
     for key in vars(options):
         params[key] = getattr(options, key)
 
+    if check_options(params) is False:                                          
+        return 1
+
     # Save calling command
     logging.log_command(argv)
 
@@ -532,7 +615,7 @@ def main(argv=None):
     #print('MKDEBUG cut to 0.4M')
     #data['bg'] = data['bg'][400_000:600_000]
 
-    print(f'stacking: physical={params["physical"]}, stack={params["stack"]}')
+    print(f'scales={params["scales"]}, stack={params["stack"]}')
 
     n_bin_fac = 1
     print('n_bin_fac = ', n_bin_fac)
@@ -574,7 +657,7 @@ def main(argv=None):
             if params['verbose']:
                 print(f'Using catalog weights for {sample} sample')
 
-    if params['physical']:
+    if params['scales'] == 'physical':
         cosmo = defaults.get_cosmo_default()
         n_theta = params['n_theta'] * n_bin_fac
 
@@ -586,7 +669,7 @@ def main(argv=None):
     for sample in ('fg', 'bg'):
 
         # Split cat into single objects if fg and physical
-        if sample == 'fg' and (params['physical'] or params['stack'] != 'auto'):
+        if sample == 'fg' and (params['scales'] == 'physical' or params['stack'] != 'auto'):
             split = True
         else:
             split = False
@@ -606,7 +689,7 @@ def main(argv=None):
     # Set treecorr config info for correlation
 
     sep_units = 'arcmin'
-    if params['physical']:
+    if params['scales'] == 'physical':
 
         # Angular distances to all objects
         a_arr = 1 / (1 + data['fg'][params['key_z']]) 
@@ -662,15 +745,12 @@ def main(argv=None):
             ng_diff = ng_essentials(n_theta)
             ng_diff.difference(ng, ng_prev)
 
-            # Count (and add) only those will full correlations across scales
-            if True:
-            #if all(ng_diff.weight > 0):
-            #if any(ng_diff.weight > 0):
-                n_corr += 1
+            # Count (and add) correlations
+            n_corr += 1
 
-                all_ng.append(ng_diff)
-                # Update previous cumulative correlations
-                ng_essentials.copy_from(ng_prev, ng)
+            all_ng.append(ng_diff)
+            # Update previous cumulative correlations
+            ng_essentials.copy_from(ng_prev, ng)
 
         if params['stack'] == 'cross':
             if params['verbose']:
@@ -679,8 +759,8 @@ def main(argv=None):
             ng.finalize(varg)
 
         if n_corr == 0:
-            raise ValueError('No non-zero correlations computed')
-        print(f'Computed {n_corr} non-zero correlations')
+            raise ValueError('No correlations computed')
+        print(f'Computed {n_corr} correlations')
 
     else:
 
@@ -689,7 +769,7 @@ def main(argv=None):
             print('Automatic (treecorr process) stacking of fg objects')
         ng.process(cats['fg'][0], cats['bg'][0], num_threads=params['n_cpu'])
 
-    if params['physical']:
+    if params['scales'] == 'physical':
 
         # Create new config for correlations stacked on physical scales.
         # Use (command-line) input scales but interpret in Mpc
@@ -707,9 +787,11 @@ def main(argv=None):
         # and not cross stacking done
         if params['verbose']:
             print('Post-process (this script) stacking of fg objects')
-        ng = ng_stack(TreeCorrConfig, all_ng, d_ang, n_bin_fac=n_bin_fac)
+        ng, ng_jk = ng_stack(TreeCorrConfig, all_ng, d_ang, n_bin_fac=n_bin_fac)
+    else:
+        ng_jk = None
 
-    # Write to file
+    # Write stack to file
     out_path = params['out_path']
     if params['verbose']:
         print(f'Writing output file {out_path}')
@@ -720,12 +802,33 @@ def main(argv=None):
         precision=None,
     )
 
+    # Write stack with jackknife resamples summaries to file
+    if ng_jk:
+        if not params['out_path_jk']:
+            base, ext = os.path.splitext(params['out_path'])
+            out_path_jk = f'{base}_jk{ext}'
+        else:
+            out_path_jk = params['out_path_jk']
+        if params['verbose']:
+            print(f'Writing output file {out_path_jk}')
+        ng_jk.write(
+            out_path_jk,
+            rg=None,
+            file_type=None,
+            precision=None,
+        )
+
     # Fix missing keywords, to prevent subsequent treecorr read error
     if params['stack'] != 'cross':
         hdu_list = fits.open(out_path)
         hdu_list[1].header['COORDS'] = 'spherical'
         hdu_list[1].header['metric'] = 'Euclidean'
         hdu_list.writeto(out_path, overwrite=True)
+        if ng_jk:
+            hdu_list = fits.open(out_path_jk)
+            hdu_list[1].header['COORDS'] = 'spherical'
+            hdu_list[1].header['metric'] = 'Euclidean'
+            hdu_list.writeto(out_path_jk, overwrite=True)
 
     return 0
 
