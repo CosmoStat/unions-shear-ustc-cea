@@ -102,7 +102,7 @@ def get_ngcorr_data(
     theta_max=100,
     n_theta=10,
 ):
-    """Get Corr Data.
+    """Get NGCorr Data.
 
     Return correlation data from file, computed by treecorr
 
