@@ -9,7 +9,7 @@ This module sets up runs of the unions_wl computations.
 import numpy as np
 
 from astropy.io import fits
-from astropy import units                                                       
+from astropy import units
 
 from tqdm import tqdm
 import treecorr
@@ -85,6 +85,7 @@ def parse_options(p_def, short_options, types, help_strings):
     options, args = parser.parse_args()
 
     return options
+
 
 class Compute_NG(object):
     """Compute NG.
@@ -303,7 +304,7 @@ class Compute_NG(object):
         # Create treecorr catalogues
         for sample in ('fg', 'bg'):
 
-            # Split cat into single objects if fg and physical
+            # Split cat into single objects if fg and physical or not auto
             if (
                 sample == 'fg' and
                 (params['scales'] == 'physical' or params['stack'] != 'auto')
@@ -312,15 +313,11 @@ class Compute_NG(object):
             else:
                 split = False
 
-            self._cats[sample] = create_treecorr_catalogs(
-                self._data,
+            self._cats[sample] = self.create_treecorr_catalogs(
                 sample,
-                params[f'key_ra_{sample}'],
-                params[f'key_dec_{sample}'],
                 g1,
                 g2,
                 w,
-                self._coord_units,
                 split,
             )
 
@@ -329,6 +326,79 @@ class Compute_NG(object):
                     f"Correlating 1 bg with {len(self._cats['fg'])} fg"
                     + f" catalogues..."
                 )
+
+	def create_treecorr_catalogs(
+    	sample,
+    	g1,
+    	g2,
+    	w,
+    	coord_units,
+    	split,
+	):
+    	"""Create Treecorr Catalogs.
+
+    	Return treecorr catalog(s).
+
+    	Parameters
+    	----------
+    	sample : str
+        	sample string
+    	g1 : dict
+        	first shear component
+    	g2 : dict
+        	second shear component
+    	w : dict
+        	weight
+    	split : bool
+        	if True split foreground sample into individual objects
+
+    	Returns
+    	-------
+    	list
+        	treecorr Cataloge objects
+
+    	"""
+        # Set shortcuts
+    	key_ra = self._params[f"key_ra_{sample}"]
+    	key_dec = self._params[f"key_dec_{sample}"]
+
+    	cat = []
+    	if not split:
+
+            # Create single catalogue
+        	my_cat = treecorr.Catalog(
+            	ra=self._data[sample][key_ra],
+            	dec=self._data[sample][key_dec],
+            	g1=g1[sample],
+            	g2=g2[sample],
+            	w=w[sample],
+            	ra_units=self._coord_units,
+            	dec_units=self._coord_units,
+        	)
+        	cat = [my_cat]
+    	else:
+            # Create individual catalogue for each object
+        	n_obj = len(self._data[sample][key_ra])
+        	for idx in range(n_obj):
+            	if not g1[sample]:
+                	my_g1 = None
+                	my_g2 = None
+            	else:
+                	my_g1 = g1[sample][idx:idx+1]
+                	my_g2 = g2[sample][idx:idx+1]
+
+            	my_cat = treecorr.Catalog(
+                	ra=self._data[sample][key_ra][idx:idx+1],
+                	dec=self._data[sample][key_dec][idx:idx+1],
+                	g1=my_g1,
+                	g2=my_g2,
+                	w=w[sample][idx:idx+1],
+                	ra_units=coord_units,
+                	dec_units=coord_units,
+            	)
+            	cat.append(my_cat)
+
+    	return cat
 
     def set_up_treecorr_config(self):
         """Set Up Trecorr Config.
@@ -343,13 +413,7 @@ class Compute_NG(object):
             a_arr = 1 / (1 + self._data['fg'][self._params['key_z']])
             self._d_ang_arr = self._cosmo.angular_diameter_distance(a_arr)
 
-            theta_min, theta_max = get_theta_min_max(
-                self._params['theta_min'],
-                self._params['theta_max'],
-                self._d_ang_arr,
-                self._sep_units,
-                verbose=self._params['verbose'],
-            )
+            theta_min, theta_max = self.get_theta_min_max()
 
         else:
             self._cosmo = None
@@ -357,14 +421,68 @@ class Compute_NG(object):
             theta_min = self._params['theta_min']
             theta_max = self._params['theta_max']
 
-        self._TreeCorrConfig = create_treecorr_config(
-            self._coord_units,
+        self._TreeCorrConfig = self.create_treecorr_config(
             theta_min,
             theta_max,
-            self._sep_units,
-            self._params['n_theta'],
             self._params['n_cpu'],
         )
+
+	def get_theta_min_max(self):
+    	"""Get Theta Min MaX.
+
+    	Return scale ranges.
+
+    	Returns
+    	-------
+    	float
+        	minimum angular scale
+    	float
+        	maximum angular scale
+
+    	"""
+		r_min = self._params['theta_min']
+		r_max = self._params['theta_max']
+		d_ang_arr = self._d_ang_arr
+
+    	# Min and max angular distance at object redshift
+    	d_ang_min = min(d_ang_arr)
+    	d_ang_max = max(d_ang_arr)
+    	d_ang_mean = np.mean(d_ang_arr)
+
+    	# Transfer physical to angular scales
+
+    	theta_min = 1e30
+    	theta_max = -1
+    	for d_ang in d_ang_arr:
+        	th_min = float(r_min) / d_ang
+        	if th_min < theta_min:
+            	theta_min = th_min
+        	th_max = float(r_max) / d_ang
+        	if th_max > theta_max:
+            	theta_max = th_max
+
+    	if self._params["verbose"]:
+        	print(f'physical to angular scales, r = {r_min}  ... {r_max:} Mpc')
+        	print(
+            	f'physical to angular scales, d_ang = {min(d_ang_arr):.2f}  ... '
+            	+ f'{max(d_ang_arr):.2f} (mean {d_ang_mean:.2f}) Mpc'
+        	)
+        	print(
+            	f'physical to angular scales, theta = {theta_min:.2g}  ... '
+            	+ f'{theta_max:.2g} rad'
+        	)
+
+    	theta_min = rad_to_unit(theta_min, self._sep_units)
+    	theta_max = rad_to_unit(theta_max, self._sep_units)
+
+    	if self._params["verbose"]:
+    		print(
+        		f'physical to angular scales, theta = {theta_min:.2g}  ... '
+        		+ f'{theta_max:.2f} arcmin'
+    		)
+
+    	return theta_min, theta_max
+
 
     def correlate(self):
         """Correlate.
@@ -374,9 +492,11 @@ class Compute_NG(object):
         """
         self._ng = treecorr.NGCorrelation(self._TreeCorrConfig)
         if len(self._cats['fg']) > 1:
+            # Correlate n_fg times (for each fg object) and stack
             self.correlate_n_fg()
             self.stack()
         else:
+            # Correlate onec with all fg objects
             self.correlate_1()
 
     def correlate_n_fg(self):
@@ -388,7 +508,7 @@ class Compute_NG(object):
         params = self._params
 
         n_corr = 0
-        ng_prev = ng_essentials(self._params["n_theta"])
+        ng_prev = ng_essentials(params["n_theta"])
         self._all_ng = []
 
         # More than one foreground catalogue: run individual correlations
@@ -452,69 +572,124 @@ class Compute_NG(object):
         """
         params = self._params
 
-        if params['scales'] == 'physical':                                          
-                                                                                
-            # Create new config for correlations stacked on physical scales.        
-            # Use (command-line) input scales but interpret in Mpc                  
-            TreeCorrConfig_for_stack = create_treecorr_config(                                
-                self._coord_units,                                                  
-                params['theta_min'],                                                
-                params['theta_max'],                                                
-                self._sep_units,                                                    
-                params['n_theta'],                                                  
-                1,                                                                  
-            )                                                                       
+        if params['scales'] == 'physical':
+
+            # Create new config for correlations stacked on physical scales.
+            # Use (command-line) input scales but interpret in Mpc
+            TreeCorrConfig_for_stack = create_treecorr_config(
+                params['theta_min'],
+                params['theta_max'],
+                1,
+            )
 
         else:
 
             # Re-use previous config for stacking on angular scales
             TreeCorrConfig_for_stack = self._TreeCorrConfig
-                                                                                
-        if len(self._cats['fg']) > 1 and not params['stack'] == 'cross':                  
-            # Stack now (in post-processing) if more than one fg catalogue,         
-            # and not cross stacking done                                           
-            if params['verbose']:                                                   
-                print('Post-process (this script) stacking of fg objects')          
+
+        if len(self._cats['fg']) > 1 and not params['stack'] == 'cross':
+            # Stack now (in post-processing) if more than one fg catalogue,
+            # and not cross stacking done
+            if params['verbose']:
+                print('Post-process (this script) stacking of fg objects')
 
             # MKDEBUG TODO: distinguish from previous ng (not used anymore here)
-            self._ng, self._ng_jk = ng_stack(                                                   
-                TreeCorrConfig_for_stack,                                                     
-                self._all_ng,                                                             
-                self._d_ang_arr,                                                              
-            )                                                                       
-        else:                                                                       
-            self._ng_jk = None 
+            self._ng, self._ng_jk = ng_stack(
+                TreeCorrConfig_for_stack,
+                self._all_ng,
+                self._d_ang_arr,
+            )
+        else:
+            self._ng_jk = None
 
-    def write_corr(self):
+    @classmethod
+    def create_treecorr_config(cls, scale_min, scale_max, n_cpu):
+        """Create Treecorr Config.
+
+        Create treecorr config information.
+
+        Parameters
+        ----------
+        scale_min : float
+            smallest scale
+        scale_max : float
+            largest scale
+        n_cpu : int
+            number of CPUs for parallel computation
+
+        Returns
+        -------
+        dict
+            treecorr configuration information
+
+        """
+        TreeCorrConfig = {
+            'ra_units': cls._coord_units,
+            'dec_units': cls._coord_units,
+            'min_sep': scale_min,
+            'max_sep': scale_max,
+            'sep_units': cls._sep_units,
+            'nbins': cls._params["n_theta"],
+            'num_threads': n_cpu,
+        }
+
+        return TreeCorrConfig
+
+
+    @classmethod
+    def _write_corr(cls, ng, out_path):
         """Write Corr.
+
+        Write correlation output to disk.
+
+        Parameters
+        ----------
+        ng : treecorr.NGCorrelation
+            number-shear correlation information
+        out_path : str
+            output file path
+
+        """
+        if cls._params['verbose']:
+            print(f"Writing output file {out_path}")
+        ng.write(out_path, rg=None, file_type=None, precision=None)
+
+    @classmethod
+    def _fix_treecorr_keys(cls, path):
+        """Fix Treecorr Keys.
+
+        Fix Keywords in treecorr FITS output file.
+
+        Parameters
+        ----------
+        path : str
+            file path
+
+        """
+        hdu_list = fits.open(path)
+        hdu_list[1].header['COORDS'] = 'spherical'
+        hdu_list[1].header['metric'] = 'Euclidean'
+        hdu_list.writeto(path, overwrite=True)
+
+    def write_correlations(self):
+        """Write Correlations.
 
         Write correlation outputs to disk.
 
         """
-        if self._params['verbose']:                                                       
-            print(f"Writing output file {self._params['out_path']}")                                
-        self._ng.write(                                                                   
-            self._params["out_path"],                                                               
-            rg=None,                                                                
-            file_type=None,                                                         
-            precision=None,                                                         
-        )                                                                           
-                                                                                
-        # Write stack with jackknife resamples summaries to file                    
-        if self._ng_jk:                                                                   
-            if not self._params['out_path_jk']:                                           
-                base, ext = os.path.splitext(self._params['out_path'])                    
-                out_path_jk = f'{base}_jk{ext}'                                     
-            else:                                                                   
-                out_path_jk = self._params['out_path_jk']                                 
-            if self._params['verbose']:                                                   
-                print(f"Writing output file {self._params['out_path_jk']}")                         
-            ng_jk.write(                                                            
-                out_path_jk,                                                        
-                rg=None,                                                            
-                file_type=None,                                                     
-                precision=None,                                                     
-            )
+        self._write_corr(_ng, self._params["out_path"])
+        if self._params['stack'] != 'cross':
+            self._fix_treecorr_keys(self._params["out_path"])
+
+        # Write stack with jackknife resamples summaries to file
+        if self._ng_jk:
+            if not self._params['out_path_jk']:
+                base, ext = os.path.splitext(self._params['out_path'])
+                out_path_jk = f'{base}_jk{ext}'
+            else:
+                out_path_jk = self._params['out_path_jk']
+            self._write_corr(ng_jk, out_path_jk)
+            self._fix_treecorr_keys(out_path_jk)
 
     def run(self):
         """Run.
@@ -535,109 +710,12 @@ class Compute_NG(object):
         self.correlate()
 
         # Write correlation outputs to disk
-        self.write_corr()
+        self.write_correlations()
 
 
-def create_treecorr_catalogs(
-    positions,
-    sample,
-    key_ra,
-    key_dec,
-    g1,
-    g2,
-    w,
-    coord_units,
-    split,
-):
-    """Create Treecorr Catalogs.
-
-    Return treecorr catalog(s).
-
-    Parameters
-    ----------
-    positions : dict
-        input positions
-    sample : str
-        sample string
-    key_ra : str
-        data key for right ascension
-    key_dec : str
-        data key for declination
-    g1 : dict
-        first shear component
-    g2 : dict
-        second shear component
-    w : dict
-        weight
-    coord_units : str
-        coordinate unit string
-    split : bool
-        if True split foreground sample into individual objects
-
-    Returns
-    -------
-    list
-        treecorr Cataloge objects
-
-    """
-    cat = []
-    if not split:
-        my_cat = treecorr.Catalog(
-            ra=positions[sample][key_ra],
-            dec=positions[sample][key_dec],
-            g1=g1[sample],
-            g2=g2[sample],
-            w=w[sample],
-            ra_units=coord_units,
-            dec_units=coord_units,
-        )
-        cat = [my_cat]
-    else:
-        n_obj = len(positions[sample][key_ra])
-        for idx in range(n_obj):
-            if not g1[sample]:
-                my_g1 = None
-                my_g2 = None
-            else:
-                my_g1 = g1[sample][idx:idx+1]
-                my_g2 = g2[sample][idx:idx+1]
-
-            my_cat = treecorr.Catalog(
-                ra=positions[sample][key_ra][idx:idx+1],
-                dec=positions[sample][key_dec][idx:idx+1],
-                g1=my_g1,
-                g2=my_g2,
-                w=w[sample][idx:idx+1],
-                ra_units=coord_units,
-                dec_units=coord_units,
-            )
-            cat.append(my_cat)
-
-    return cat
 
 
-def create_treecorr_config(                                                     
-    coord_units,                                                                
-    scale_min,                                                                  
-    scale_max,                                                                  
-    sep_units,                                                                  
-    n_theta,                                                                    
-    n_cpu,                                                                      
-):                                                                              
-                                                                                
-    TreeCorrConfig = {                                                          
-        'ra_units': coord_units,                                                
-        'dec_units': coord_units,                                               
-        'min_sep': scale_min,                                                   
-        'max_sep': scale_max,                                                   
-        'sep_units': sep_units,                                                 
-        'nbins': n_theta,                                                       
-        'num_threads': n_cpu,                                                   
-    }                                                                           
-                                                                                
-    return TreeCorrConfig
-
-
+# MKDEBUG TODO to cs_util
 def rad_to_unit(value, unit):
 
     return (value * units.rad).to(unit).value
@@ -648,66 +726,18 @@ def unit_to_rad(value, unit):
     return value * units.Unit(units).to('rad')
 
 
-def get_theta_min_max(r_min, r_max, d_ang_arr, sep_units, verbose=False):
-    """Get Theta Min MaX.
+def run_compute_ng_binned_samples(*argv):
+    """Run Compute NG Binned Samples.
 
-    Return scale ranges.
-
-    Parameters
-    ----------
-    r_min : float
-        minium physical scale [Mpc]
-    r_max : float
-        maxium physical scale [Mpc]
-    d_ang_arr : list
-        angular diameter distances [Mpc]
-    sep_units : str
-        unit for angular scales
-    verbose : bool, optional
-        verbose output if True, default is False
-
-    Returns
-    -------
-    float
-        minimum angular scale
-    float
-        maximum angular scale
+    Run number-shear correlations between two samples binned in redshift,
+    from command line.
 
     """
-    # Min and max angular distance at object redshift
-    d_ang_min = min(d_ang_arr)
-    d_ang_max = max(d_ang_arr)
-    d_ang_mean = np.mean(d_ang_arr)
+    # Create instance for number-shear correlation computation
+    obj = Compute_NG()
 
-    # Transfer physical to angular scales
+    # Read command line arguments
+    obj.set_params_from_command_line(argv)
 
-    theta_min = 1e30
-    theta_max = -1
-    for d_ang in d_ang_arr:
-        th_min = float(r_min) / d_ang
-        if th_min < theta_min:
-            theta_min = th_min
-        th_max = float(r_max) / d_ang
-        if th_max > theta_max:
-            theta_max = th_max
-
-    if verbose:
-        print(f'physical to angular scales, r = {r_min}  ... {r_max:} Mpc')
-        print(
-            f'physical to angular scales, d_ang = {min(d_ang_arr):.2f}  ... '
-            + f'{max(d_ang_arr):.2f} (mean {d_ang_mean:.2f}) Mpc'
-        )
-        print(
-            f'physical to angular scales, theta = {theta_min:.2g}  ... '
-            + f'{theta_max:.2g} rad'
-        )
-
-    theta_min = rad_to_unit(theta_min, sep_units)
-    theta_max = rad_to_unit(theta_max, sep_units)
-
-    print(
-        f'physical to angular scales, theta = {theta_min:.2g}  ... '
-        + f'{theta_max:.2f} arcmin'
-    )
-
-    return theta_min, theta_max
+    # Run code
+    obj.run()
