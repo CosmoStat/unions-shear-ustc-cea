@@ -2,6 +2,7 @@ astropy
 cs_util
 healpy
 jinja2==3.0
+jupytext
 lmfit
 importlib_metadata
 numpy
