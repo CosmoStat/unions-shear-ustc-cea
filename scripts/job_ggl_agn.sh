@@ -13,11 +13,12 @@ unions_data_path=/home/mkilbing/astro/data/CFIS/v1.0
 
 # Command line arguments
 ## Default variables
-methods=(SP LF)
-blinds=(A B C)
+methods_arg=SP_LF
+blinds_arg=A_B_C
 weights=("u" "w")
-n_split_arr=(1 2 3)
-stack=angular
+n_split_arg=1_2_3
+scales=angular
+stack=auto
 Delta_Sigma=0
 AGN=Liu19
 logM_min=0
@@ -29,17 +30,24 @@ footprint_mask=""
 n_cpu=1
 idx_ref=
 
+
 ## Help string
 usage="Usage: $(basename "$0") [OPTIONS]
 \n\nOptions:\n
    -h\tthis message\n
    -a, --agn_cat AGN\n
    \tAGN catalogue, '$AGN' (default) or 'Shen22_and_Liu19'\n
+   -b, --blinds BLINDS\n
+   \tidentifier(s) or blinded n(z), default is $blinds_arg\n
+   -m, --methods SHAPE_METHOD\n
+   \tshape measurement method(s), default is $methods_arg\n
    -f, --footprint_mask FNAME\n
    \tfootprint mask file FNAME\n
    \tno mask is applied if not given (default)\n
    -n, --n_cpu N_CPU\n
    \tNumber of CPUs, default is ${n_cpu}\n
+   -N, --n_split\n
+   \tlist of number of subsamples (splits), default is $n_split_arg\n
    --logM_min LOGM_MIN\n
    \tUse only AGN with mass > LOGM_MIN, default is ${logM_min} (no cut)\n
    --z_min Z_MIN\n
@@ -49,8 +57,10 @@ usage="Usage: $(basename "$0") [OPTIONS]
   --idx_ref IDX_REF\n
    \tbin index IDX_REF for reference redshift histogram\n
    \tdefault none (flat weighted histograms)\n
-   -s, --stack STACK\n
-   \tstack using angular or physical coordinates, default=${stack}\n
+   -s, --scales SCALES\n
+   \tstacking on angular or physical coordinates, default is $scales\n
+   -S, --stack STACK\n
+   \tstacking method, allowed are auto, cross, post, default is $stack\n
    --Delta_Sigma\n
    \testimator is excess surface mass density instead of tangential shear\n
    --theta_min THETA_MIN\n
@@ -74,12 +84,24 @@ while [ $# -gt 0 ]; do
       AGN="$2"
       shift
       ;;
+    -b|--blinds)
+      blinds_arg="$2"
+      shift
+      ;;
+    -m|--method)
+      methods_arg="$2"
+      shift
+      ;;
     -f|--footprint_mask)
       footprint_mask="$2"
       shift
       ;;
     -n|--n_cpu)
       n_cpu="$2"
+      shift
+      ;;
+    -N|--n_split)
+      n_split_arg="$2"
       shift
       ;;
     --logM_min)
@@ -106,7 +128,11 @@ while [ $# -gt 0 ]; do
       idx_ref="$2"
       shift
       ;;
-    -s|--stack)
+    -s|--scales)
+      scales="$2"
+      shift
+      ;;
+    -S|--stack)
       stack="$2"
       shift
       ;;
@@ -117,18 +143,30 @@ while [ $# -gt 0 ]; do
   shift
 done
 
+## Post-process options
 
-# Check options
-if [ "${Delta_Sigma}" == 1 ] && [ "$stack" == "angular" ]; then
-  echo "With Delta_Sigma=1 stack cannot be angular"
+### strings -> lists
+blinds=(`echo $blinds_arg | tr ' ' _`)
+methods=(`echo $methods_arg | tr ' ' _`)
+n_split_arr=(`echo $n_split_arg | tr ' ' _`)
+
+
+## Check options
+if [ "${Delta_Sigma}" == 1 ] && [ "$scales" == "angular" ]; then
+  echo "With Delta_Sigma=1 scales cannot be angular"
   exit 5
 fi
+if [ "${Delta_Sigma}" == 1 ] && [ "$stack" != "post" ]; then
+  echo "With Delta_Sigma=1 stack has to be post"
+  exit 6
+fi
+
 
 function create_one_link() {
   file=$1
   dir=$2
 
-  if [ ! -e $file ]; then
+  if [ ! -L $file ] && [ ! -e $file ]; then
     ln -s $dir/$file
  fi
 }
@@ -256,14 +294,7 @@ function compute_ng() {
     done
   done
 
-  # Set stacking argument(s)
-  if [ "$stack" == "angular" ]; then
-    arg_s="--stack=auto"
-  elif [ "$stack" == "physical" ]; then
-    arg_s="--physical --key_z z"
-  else
-    echo "Invalid stack value"
-  fi
+  arg_s="--scales=$scales --stack=$stack"
 
   if [ "${Delta_Sigma}" == "1" ]; then
 
@@ -288,13 +319,24 @@ function compute_ng() {
 # Compare to theory
 function compare_to_theory() {
 
+  tmin=${theta_min}
+  tmax=${theta_max}
+
   for n_split in ${n_split_arr[@]}; do
     for (( c=0; c<$n_split; c++ )); do
       for sh in ${methods[@]}; do
         for blind in ${blinds[@]}; do
           for weight in ${weights[@]}; do
 
-              ${bin_path}/ggl_compare_data_theory.py --corr_path $sh/ggl_agn_${c}_n_split_${n_split}_${weight}.fits --dndz_lens_path hist_z_${c}_n_split_${n_split}_${weight}.txt --dndz_source_path dndz_${sh}_${blind}.txt -v --theta_min 0.1 --theta_max 200 --n_theta 10 --bias_1 1.0 --out_base ${sh}/gamma_tx_${c}_n_split_${n_split}_${blind}_${weight} | tee -a log_job.sh
+              ggl_in_path=$sh/ggl_agn_${c}_n_split_${n_split}_${weight}.fits
+              out_base=${sh}/gamma_tx_${c}_n_split_${n_split}_${blind}_${weight}
+              ${bin_path}/ggl_compare_data_theory.py --corr_path $ggl_in_path --dndz_lens_path hist_z_${c}_n_split_${n_split}_${weight}.txt --dndz_source_path dndz_${sh}_${blind}.txt -v --theta_min $tmin --theta_max $tmax --n_theta 10 --bias_1 1.0 --out_base $out_base --scales=$scales | tee -a log_job.sh
+
+              ggl_in_path=$sh/ggl_agn_${c}_n_split_${n_split}_${weight}_jk.fits
+              out_base=${sh}/gamma_tx_${c}_n_split_${n_split}_${blind}_${weight}_jk
+              if [ -e $ggl_in_path ]; then
+                ${bin_path}/ggl_compare_data_theory.py --corr_path $ggl_in_path --dndz_lens_path hist_z_${c}_n_split_${n_split}_${weight}.txt --dndz_source_path dndz_${sh}_${blind}.txt -v --theta_min $tmin --theta_max $tmax --n_theta 10 --bias_1 1.0 --out_base $out_base --scales=$scales | tee -a log_job.sh
+              fi
 
           done
         done
@@ -326,5 +368,5 @@ split_sample
 compute_ng
 
 # TODO: use HOD instead of linear bias model
-#echo "*** Compare to theory..."
-#compare_to_theory
+echo "*** Compare to theory..."
+compare_to_theory

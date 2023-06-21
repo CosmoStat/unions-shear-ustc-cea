@@ -23,14 +23,14 @@ from statsmodels.distributions.empirical_distribution import ECDF
 from astropy.table import Table
 from astropy.io import fits
 
-from unions_wl import catalogue as wl_cat
+from unions_wl import catalogue as cat_wl
 from unions_wl import defaults
 
 from cs_util import logging
 from cs_util import calc
 from cs_util import plots
-from cs_util import cat as cs_cat
-from cs_util import cosmo as cs_cosmo
+from cs_util import cat as cat_csu
+from cs_util import cosmo as cosmo_csu
 
 
 def params_default():
@@ -148,7 +148,7 @@ def parse_options(p_def, short_options, types, help_strings):
                     help=help_strings[key].format(p_def[key]),
                 )
             else:
-                parser.add_option(
+            parser.add_option(
                     short,
                     f'--{key}',
                     dest=key,
@@ -360,7 +360,7 @@ def main(argv=None):
         print(f'Computing cdf({params["key_logM"]})...')
 
     # Cut in mass if required
-    dat = wl_cat.cut_data(
+    dat = cat_wl.cut_data(
         dat,
         params['key_logM'],
         params['logM_min'],
@@ -376,7 +376,7 @@ def main(argv=None):
         '>',
         verbose=params['verbose']
     )
-    dat = wl_cat.cut_data(
+    dat = cat_wl.cut_data(
         dat,
         params['key_z'],
         params['z_max'],
@@ -388,7 +388,7 @@ def main(argv=None):
     cdf = ECDF(dat[params['key_logM']])
 
     # Split into two (check whether we get median from before)
-    logM_bounds = wl_cat.y_equi(cdf, params['n_split'])
+    logM_bounds = cat_wl.y_equi(cdf, params['n_split'])
 
     # Add min and max to boundaries
     logM_bounds.insert(0, min(dat[params['key_logM']]))
@@ -473,8 +473,63 @@ def main(argv=None):
 
         dat[f'w_{idx}'][mask] = weights
 
-    # Original redshift histogram
-    ## Plot
+    # If required multiply weights by inverse square of effective
+    # critical surface mass density
+    if params['Delta_Sigma']:
+
+        cosmo = defaults.get_cosmo_default()
+
+        # Source redshift distribution and distances
+        z_source, nz_source, _ = cat_csu.read_dndz(params['dndz_source_path'])
+        a_source = 1 / (1 + z_source)
+        d_ang_source = cosmo.angular_diameter_distance(a_source)
+
+        # Create spline interpolation function
+        nz_source_interp = interpolate.InterpolatedUnivariateSpline(z_source, nz_source)
+        d_ang_source_interp = interpolate.InterpolatedUnivariateSpline(z_source, d_ang_source)
+
+        # Rebin source to lower number to speed up Sigma_cr computation
+        n_z_source_rebin = 25
+        z_source_rebin = np.linspace(z_source[0], z_source[-1], n_z_source_rebin)
+        nz_source_rebin = nz_source_interp(z_source_rebin)
+        d_ang_source_rebin = d_ang_source_interp(z_source_rebin)
+
+        # Loop over lens selections
+        for idx, mask in enumerate(mask_list):
+
+            n_z_lens = 25
+            z_lens = np.linspace(z_min, z_max, n_z_lens)
+            a_lens = 1 / (1 + z_lens)
+            d_ang_lens = cosmo.angular_diameter_distance(a_lens)
+            d_ang_lens_interp = interpolate.InterpolatedUnivariateSpline(z_lens, d_ang_lens)
+
+            sig_cr_w = np.ones_like(dat[params['key_z']][mask])
+
+            # Loop over lens objects
+            for idz, z in tqdm(
+                enumerate(dat[params['key_z']][mask]),
+                total=len(dat[params['key_z']][mask]),
+                disable=not params['verbose'],
+                desc=f'split {idx}/{params["n_split"]}',
+            ):
+                #a_lens = 1 / (1 + z)
+                #d_ang_lens = cosmo.angular_diameter_distance(a_lens)
+                d_ang_lens_spline = d_ang_lens_interp(z)
+                sig_crit_m1_eff = cosmo_csu.sigma_crit_m1_eff(
+                    z,
+                    z_source_rebin,
+                    nz_source_rebin,
+                    cosmo,
+                    d_lens=d_ang_lens_spline,
+                    d_source_arr=d_ang_source_rebin,
+                )
+
+                sig_cr_w[idz] = sig_crit_m1_eff.value ** 2
+
+            # Apply weights
+            dat[f'w_{idx}'][mask] = dat[f'w_{idx}'][mask] * sig_cr_w
+
+    # Plot original redshift histograms
     out_name = (
         f'{params["output_dir"]}'
         + f'/hist_{params["key_z"]}_n_split_{params["n_split"]}_u.pdf'
@@ -555,7 +610,7 @@ def main(argv=None):
         cols = []
         for key in t.keys():
             cols.append(fits.Column(name=key, array=t[key], format='E'))
-        cs_cat.write_fits_BinTable_file(cols, out_name)
+        cat_csu.write_fits_BinTable_file(cols, out_name)
 
     return 0
 

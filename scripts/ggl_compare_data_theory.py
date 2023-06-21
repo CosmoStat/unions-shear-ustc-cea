@@ -21,11 +21,12 @@ from optparse import OptionParser
 import pyccl as ccl
 
 from unions_wl import theory
-from unions_wl import catalogue as cat
+from unions_wl import catalogue as cat_wl
 from unions_wl import defaults
 
 from cs_util import logging
 from cs_util import plots
+from cs_util import cat as cat_csu
 
 
 def params_default():
@@ -52,7 +53,7 @@ def params_default():
         'theta_min': 0.2,
         'theta_max': 200,
         'n_theta': 20,
-        'physical' : False,
+        'scales' : 'angular',
         'Delta_Sigma' : False,
         'out_base': 'gamma_tx',
         'out_cls_base': None,
@@ -65,7 +66,6 @@ def params_default():
         'theta_min': 'float',
         'theta_max': 'float',
         'n_theta': 'int',
-        'physical': 'bool',
         'Delta_Sigma': 'bool',
     }
 
@@ -78,7 +78,7 @@ def params_default():
         'theta_min': 'minimum angular scale, default={}',
         'theta_max': 'minimum angular scale, default={}',
         'n_theta': 'number of angular scales, default={}',
-        'physical' : '2D coordinates are physical [Mpc], default={}',
+        'scales' : '2D coordinates (scales) are angular (arcmin) or physical [Mpc], default={}',
         'Delta_Sigma' : 'excess surface mass density instead of tangential'
             + ' shear  default={}',
         'out_base': 'output base path, default={}',
@@ -172,7 +172,11 @@ def check_options(options):
         Result of option check. False if invalid option value.                  
                                                                                 
     """                                                                         
-    if options['Delta_Sigma'] and not options['physical']:
+    if options['scales'] not in ('angular', 'physical'):
+        print('Scales (option -s) need to be angular or physical')
+        return False
+
+    if options['Delta_Sigma'] and not options['scales'] == 'physical':
         print('With Delta_Sigma=True physical needs to be True')
         return False
 
@@ -211,12 +215,12 @@ def main(argv=None):
     nz = {}
     for sample in ('lens', 'source'):
         file_path = params[f'dndz_{sample}_path']
-        z_centers[sample], nz[sample], _ = cat.read_dndz(file_path)
+        z_centers[sample], nz[sample], _ = cat_csu.read_dndz(file_path)
 
     # Set up scales
 
     n_theta = 2000
-    if not params['physical']:
+    if params['scales'] == 'angular':
         # Angular scales on input are in arcmin. CCL asks for degree
         theta_min_deg = params['theta_min'] / 60
         theta_max_deg = params['theta_max'] / 60
@@ -238,7 +242,7 @@ def main(argv=None):
         pk_gm_info['model_type'] = 'HOD'
         pk_gm_info['log10_Mmin'] = 11.5
 
-    if not params['physical']:
+    if params['scales'] == 'angular':
         y_theo, ell, cls = theory.gamma_t_theo(
             theta_arr_deg,
             cosmo,
@@ -260,7 +264,7 @@ def main(argv=None):
 
     # Write angular power spectrum (for testing)
     if params['out_cls_base']:
-        cat.write_cls(f'{params["out_cls_base"]}.txt', ell, cls)
+        cat_wl.write_cls(f'{params["out_cls_base"]}.txt', ell, cls)
         plots.plot_data_1d(
             [ell],
             [cls],
@@ -275,7 +279,7 @@ def main(argv=None):
 
 
     # Read treecorr ng correlation data
-    ng = cat.get_ngcorr_data(
+    ng = cat_wl.get_ngcorr_data(
         params['corr_path'],
         theta_min=params['theta_min'],
         theta_max=params['theta_max'],
@@ -289,24 +293,55 @@ def main(argv=None):
     y = [ng.xi, ng.xi_im, y_theo]
     dy = [np.sqrt(ng.varxi)] * 2 + [[]]
     title = 'GGL'
-    if not params['physical']:
-        x = [ng.meanr, ng.meanr * fac]
-        xbase = r'\theta'
-        xlabel = rf'${xbase}$ [arcmin]'
+    if params['scales'] == 'angular':
+        if params['verbose']:
+            print('Using angular scales (meanr column in arcmin)')
+        x = [ng.meanr, ng.meanr * fac, x_data]
+        xscale = r'\theta'
+        xunit = 'arcmin'
     else:
-        x = [ng.rnom, ng.rnom * fac]
-        xbase = r'r'
-        xlabel = rf'${xbase}$ [Mpc]'
-    x.append(x_data)
-    ylabel = rf'$\gamma_{{\rm t}}({xbase})$'
-    ls = ['-', '', '-']
-    eb_linestyles = ['-', ':', ':']
+        print('Using physical scales (r_nom column in Mpc)')
+        x = [ng.rnom, ng.rnom * fac, x_data]
+        xscale = 'r'
+        xunit = 'Mpc'
+    xlabel = rf'${xscale}$ [{xunit}]'
+    ylabel = rf'$\gamma_{{\rm t}}({xscale})$'
+    ls = ['', '', '-']
     labels = [r'$\gamma_{\rm t}$', r'$\gamma_\times$', 'model']
     colors = ['g', 'r', 'g']
 
-    xlim_fac = 1.5
-    xlim = (params['theta_min'] / xlim_fac, params['theta_max'] * xlim_fac)
-    ylim = (5e-6, 1e-2)
+    for ymode, ystr in zip((False, True), ('lin', 'log')):
+        out_path = f'{params["out_base"]}_{ystr}.pdf'
+        plots.plot_data_1d(
+            x,
+            y,
+            dy,
+            title,
+            xlabel,
+            ylabel,
+            out_path,
+            xlog=True,
+            ylog=ymode,
+            labels=labels,
+            colors=colors,
+            linestyles=ls,
+        )
+
+    x = [x_data]
+    y = [y_theo]
+    dy = [[]]
+    title = 'GGL'
+    if params['scales'] == 'angular':
+        xlabel = rf'$\theta$ [arcmin]'
+    else:
+        xlabel = rf'$r$ [Mpc]'
+    if not params['Delta_Sigma']:
+        ylabel = r'$\gamma_{\rm t}(\theta)$'
+    else:
+        ylabel = r'$\Delta \Sigma(r)$ [$M_\odot$ / pc$^2$]'
+    ls = ['-']
+    labels = ['model']
+    colors = ['g']
 
     for ymode, ystr in zip((False, True), ('lin', 'log')):
         out_path = f'{params["out_base"]}_{ystr}.pdf'

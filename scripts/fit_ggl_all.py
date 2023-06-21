@@ -23,12 +23,13 @@ import pyccl as ccl
 from lmfit import minimize, Parameters
 
 from unions_wl import theory
-from unions_wl import catalogue as cat
+from unions_wl import catalogue as cat_wl
 from unions_wl import defaults
 from unions_wl import fit
 
 from cs_util import plots
 from cs_util import logging
+from cs_util import cat as cat_csu
 
 import treecorr
 
@@ -75,10 +76,10 @@ def params_default():
     help_strings = {
         'model_type': 'model type, \`linear\` or \`hod\`, default=\`{}\`',
         'theta_min_fit': (
-            'smallest angular scale for fit, in arcmin/Mpc, default={}'
+            'smallest angular scale for fit, in arcmin or Mpc, default={}'
         ),
         'theta_max_fit': (
-            'largest angular scale for fit, in arcmin/Mpc, default={}'
+            'largest angular scale for fit, in arcmin or Mpc, default={}'
         ),
         'n_split_max': 'maximum number of black-hole mass bins, default={}',
         'n_cpu': 'number of CPUs for parallel processing, default={}',
@@ -219,7 +220,7 @@ def read_z_data(n_split_arr, weight, shapes, blinds):
         for idx in range(n_split):
             dndz_path = f'hist_z_{idx}_n_split_{n_split}_{weight}.txt'
             z_centers[sample][n_split][idx], nz[sample][n_split][idx], _ = (
-                cat.read_dndz(dndz_path)
+                cat_csu.read_dndz(dndz_path)
             )
 
     # bg redshift distribution
@@ -231,7 +232,7 @@ def read_z_data(n_split_arr, weight, shapes, blinds):
         for blind in blinds:
             dndz_path = f'dndz_{sh}_{blind}.txt'
             z_centers[sample][sh][blind], nz[sample][sh][blind], _ = (
-                cat.read_dndz(dndz_path)
+                cat_csu.read_dndz(dndz_path)
             )
 
     return z_centers, nz
@@ -250,7 +251,7 @@ def read_correlation_data(n_split_arr, weight, shapes):
                 ng_path = (
                     f'{sh}/ggl_agn_{idx}_n_split_{n_split}_{weight}.fits'
                 )
-                ng[n_split][idx][sh] = cat.get_ngcorr_data(ng_path)
+                ng[n_split][idx][sh] = cat_wl.get_ngcorr_data(ng_path)
 
     return ng
 
@@ -324,6 +325,97 @@ def plot_data_only(ng, n_split_arr, weight, shapes, physical):
             linestyles=ls,
             eb_linestyles=eb_ls,
         )
+
+
+def g_t_model(params, x_data, extra):
+    """G_T_Model.
+
+    Tangential shear model
+
+    Parameters
+    ----------
+    params : lmfit.Parameters
+        fit parameters
+    x_data : numpy.array
+        x-values of the data (angular scales in deg)
+    extra : dict
+        additional parameters
+
+    Returns
+    -------
+    numpy.array
+        y-values of the model (tangential shear)
+
+    """
+    cosmo = extra['cosmo']
+
+    z_centers = {}
+    nz = {}
+    for sample in ('source', 'lens'):
+        z_centers[sample] = extra[f'z_centers_{sample}']
+        nz[sample] = extra[f'nz_{sample}']
+
+    # Set up model for 3D galaxy-matter power spectrum
+    pk_gm_info = {}
+    if 'bias_1' in params:
+        pk_gm_info['model_type'] = 'linear_bias'
+        pk_gm_info['bias_1'] = params['bias_1']
+    else:
+        pk_gm_info['model_type'] = 'HOD'
+        pk_gm_info['log10_Mmin'] = params['log10_Mmin']
+
+    if not extra['physical']:
+        y_model, _, _ = theory.gamma_t_theo(
+            x_data,
+            cosmo,
+            (z_centers['lens'], nz['lens']),
+            (z_centers['source'], nz['source']),
+            pk_gm_info,
+            integr_method='FFTlog',
+        )
+    else:
+        y_model = theory.gamma_t_theo_phys(
+            x_data,
+            cosmo,
+            (z_centers['lens'], nz['lens']),
+            (z_centers['source'], nz['source']),
+            pk_gm_info,
+            integr_method='FFTlog',
+            Delta_Sigma=False,
+        )
+
+    return y_model
+
+
+def loss(params, x_data, y_data, err, extra):
+    """Loss function
+
+    Loss function for tangential shear fit
+
+    Parameters
+    ----------
+    params : lmfit.Parameters
+        fit parameters
+    x_data : numpy.array
+        x-values of the data
+    y_data : numpy.array
+        y-values of the data
+    err : numpy.array
+        error values of the data
+    extra : dict
+        additional parameters
+
+    Returns
+    -------
+    numpy.array
+        residuals
+
+    """
+    y_model = g_t_model(params, x_data, extra)
+
+    residuals = (y_model - y_data) / err
+
+    return residuals
 
 
 def set_args_minimizer(

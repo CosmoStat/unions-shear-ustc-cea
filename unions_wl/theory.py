@@ -452,6 +452,7 @@ def gamma_t_theo_phys(
         d_ang = cosmo.angular_diameter_distance(a_lens)
         theta_rad = (r_Mpc / d_ang) * units.radian
         theta_deg = theta_rad.to('degree')
+        print('MKDEBUG a d r_Mpc theta_deg theta_amin', a_lens, d_ang, r_Mpc[0], theta_deg[0], theta_deg[0] * 60)
 
         # Tangential shear
         y_sub = ccl.correlation(
@@ -479,18 +480,23 @@ def gamma_t_theo_phys(
         # Mean n(z) of sub-slice
         nz_lens_mean_sub.append(np.mean(nz_lens_sub[idx]))
 
-        #y.append(y_sub * nz_lens_mean_sub[idx])
-        y.append(y_sub)# * nz_lens_mean_sub[idx])
+        y.append(y_sub)
 
-    # MKDEBUG: Check normalising, by n(z) in each slice seems to bias
-    # <g_t> low...
+    # Average weighted by n(z) of sub-slices
     y_tot = np.average(y, axis=0, weights=nz_lens_mean_sub)
-    #y_tot = np.mean(y, axis=0)
 
     return y_tot
 
 
-def pk_gm_theo_IA(cosmo, bias_1, dndz_lens, a_1_IA = 1.,log10k_min=-4, log10k_max=2, nk_per_decade=20):
+def pk_gm_theo_IA(
+    cosmo,
+    bias_1,
+    dndz_lens,
+    a_1_IA = 1.0,
+    log10k_min=-4,
+    log10k_max=2,
+    nk_per_decade=20
+):
     """PK GM THEO IA.
 
     3D galaxy-matter power spectrum for intrinsic alignments
@@ -502,7 +508,7 @@ def pk_gm_theo_IA(cosmo, bias_1, dndz_lens, a_1_IA = 1.,log10k_min=-4, log10k_ma
     bias_1 : float
         linear bias
     a_1_IA : float
-
+        intrinsic-alignment amplitude
     dndz_lens : tuple of arrays
         Redshift distribution of galaxies
     log10k_min : float, optional
