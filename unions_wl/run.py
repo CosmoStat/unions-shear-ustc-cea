@@ -94,10 +94,11 @@ class Compute_NG(object):
     background sample.
 
     """
-
     def __init__(self):
         # Set default parameters
         self.params_default()
+        self._coord_units = 'degrees'
+        self._sep_units = 'arcmin'
 
     def set_params_from_command_line(self, args):
         """Set Params From Command line.
@@ -249,11 +250,8 @@ class Compute_NG(object):
         Set up configuration and catalogues for treecorr call(s).
 
         """
-        self._coord_units = 'degrees'
-        self._sep_units = 'arcmin'
 
         self.set_up_treecorr_cats()
-
         self.set_up_treecorr_config()
 
     def set_up_treecorr_cats(self):
@@ -321,18 +319,18 @@ class Compute_NG(object):
                 split,
             )
 
-            if params['verbose']:
-                print(
-                    f"Correlating 1 bg with {len(self._cats['fg'])} fg"
-                    + f" catalogues..."
-                )
+        if params['verbose']:
+            print(
+                f"Correlating 1 bg with {len(self._cats['fg'])} fg"
+                + f" catalogues..."
+            )
 
-	def create_treecorr_catalogs(
+    def create_treecorr_catalogs(
+        self,
     	sample,
     	g1,
     	g2,
     	w,
-    	coord_units,
     	split,
 	):
     	"""Create Treecorr Catalogs.
@@ -378,25 +376,25 @@ class Compute_NG(object):
         	cat = [my_cat]
     	else:
             # Create individual catalogue for each object
-        	n_obj = len(self._data[sample][key_ra])
-        	for idx in range(n_obj):
-            	if not g1[sample]:
-                	my_g1 = None
-                	my_g2 = None
-            	else:
-                	my_g1 = g1[sample][idx:idx+1]
-                	my_g2 = g2[sample][idx:idx+1]
+            n_obj = len(self._data[sample][key_ra])
+            for idx in range(n_obj):
+                if not g1[sample]:
+                    my_g1 = None
+                    my_g2 = None
+                else:
+                    my_g1 = g1[sample][idx:idx+1]
+                    my_g2 = g2[sample][idx:idx+1]
 
-            	my_cat = treecorr.Catalog(
-                	ra=self._data[sample][key_ra][idx:idx+1],
-                	dec=self._data[sample][key_dec][idx:idx+1],
-                	g1=my_g1,
-                	g2=my_g2,
-                	w=w[sample][idx:idx+1],
-                	ra_units=coord_units,
-                	dec_units=coord_units,
-            	)
-            	cat.append(my_cat)
+                my_cat = treecorr.Catalog(
+                    ra=self._data[sample][key_ra][idx:idx+1],
+                    dec=self._data[sample][key_dec][idx:idx+1],
+                    g1=my_g1,
+                    g2=my_g2,
+                    w=w[sample][idx:idx+1],
+                    ra_units=coord_units,
+                    dec_units=coord_units,
+                )
+                cat.append(my_cat)
 
     	return cat
 
@@ -427,61 +425,61 @@ class Compute_NG(object):
             self._params['n_cpu'],
         )
 
-	def get_theta_min_max(self):
-    	"""Get Theta Min MaX.
+    def get_theta_min_max(self):
+        """Get Theta Min MaX.
 
-    	Return scale ranges.
+        Return scale ranges.
 
-    	Returns
-    	-------
-    	float
-        	minimum angular scale
-    	float
+        Returns
+        -------
+        float
+            minimum angular scale
+        float
         	maximum angular scale
 
     	"""
-		r_min = self._params['theta_min']
-		r_max = self._params['theta_max']
-		d_ang_arr = self._d_ang_arr
+        r_min = self._params['theta_min']
+        r_max = self._params['theta_max']
+        d_ang_arr = self._d_ang_arr
 
-    	# Min and max angular distance at object redshift
-    	d_ang_min = min(d_ang_arr)
-    	d_ang_max = max(d_ang_arr)
-    	d_ang_mean = np.mean(d_ang_arr)
+        # Min and max angular distance at object redshift
+        d_ang_min = min(d_ang_arr)
+        d_ang_max = max(d_ang_arr)
+        d_ang_mean = np.mean(d_ang_arr)
 
-    	# Transfer physical to angular scales
+        # Transfer physical to angular scales
 
-    	theta_min = 1e30
-    	theta_max = -1
-    	for d_ang in d_ang_arr:
-        	th_min = float(r_min) / d_ang
-        	if th_min < theta_min:
-            	theta_min = th_min
-        	th_max = float(r_max) / d_ang
-        	if th_max > theta_max:
-            	theta_max = th_max
+        theta_min = 1e30
+        theta_max = -1
+        for d_ang in d_ang_arr:
+            th_min = float(r_min) / d_ang
+            if th_min < theta_min:
+                theta_min = th_min
+            th_max = float(r_max) / d_ang
+            if th_max > theta_max:
+                theta_max = th_max
 
-    	if self._params["verbose"]:
-        	print(f'physical to angular scales, r = {r_min}  ... {r_max:} Mpc')
-        	print(
-            	f'physical to angular scales, d_ang = {min(d_ang_arr):.2f}  ... '
-            	+ f'{max(d_ang_arr):.2f} (mean {d_ang_mean:.2f}) Mpc'
-        	)
-        	print(
-            	f'physical to angular scales, theta = {theta_min:.2g}  ... '
-            	+ f'{theta_max:.2g} rad'
-        	)
+        if self._params["verbose"]:
+            print(f'physical to angular scales, r = {r_min}  ... {r_max:} Mpc')
+            print(
+                f'physical to angular scales, d_ang = {min(d_ang_arr):.2f}  ... '
+                + f'{max(d_ang_arr):.2f} (mean {d_ang_mean:.2f}) Mpc'
+            )
+            print(
+                f'physical to angular scales, theta = {theta_min:.2g}  ... '
+                + f'{theta_max:.2g} rad'
+            )
 
-    	theta_min = rad_to_unit(theta_min, self._sep_units)
-    	theta_max = rad_to_unit(theta_max, self._sep_units)
+        theta_min = rad_to_unit(theta_min, self._sep_units)
+        theta_max = rad_to_unit(theta_max, self._sep_units)
 
-    	if self._params["verbose"]:
-    		print(
-        		f'physical to angular scales, theta = {theta_min:.2g}  ... '
-        		+ f'{theta_max:.2f} arcmin'
-    		)
+        if self._params["verbose"]:
+            print(
+                f'physical to angular scales, theta = {theta_min:.2g}  ... '
+                + f'{theta_max:.2f} arcmin'
+            )
 
-    	return theta_min, theta_max
+        return theta_min, theta_max
 
 
     def correlate(self):
@@ -498,6 +496,7 @@ class Compute_NG(object):
         else:
             # Correlate onec with all fg objects
             self.correlate_1()
+            self._ng_jk = None
 
     def correlate_n_fg(self):
         """Correlate N FG.
@@ -558,11 +557,11 @@ class Compute_NG(object):
         # One foreground catalogue: run single simultaneous correlation
         if self._params['verbose']:
             print('Automatic (treecorr process) stacking of fg objects')
-            self._ng.process(
-                self._cats['fg'][0],
-                self._cats['bg'][0],
-                num_threads=self._params['n_cpu'],
-            )
+        self._ng.process(
+            self._cats['fg'][0],
+            self._cats['bg'][0],
+            num_threads=self._params['n_cpu'],
+        )
 
     def stack(self):
         """Stack.
@@ -576,7 +575,7 @@ class Compute_NG(object):
 
             # Create new config for correlations stacked on physical scales.
             # Use (command-line) input scales but interpret in Mpc
-            TreeCorrConfig_for_stack = create_treecorr_config(
+            TreeCorrConfig_for_stack = self.create_treecorr_config(
                 params['theta_min'],
                 params['theta_max'],
                 1,
@@ -602,8 +601,7 @@ class Compute_NG(object):
         else:
             self._ng_jk = None
 
-    @classmethod
-    def create_treecorr_config(cls, scale_min, scale_max, n_cpu):
+    def create_treecorr_config(self, scale_min, scale_max, n_cpu):
         """Create Treecorr Config.
 
         Create treecorr config information.
@@ -624,20 +622,19 @@ class Compute_NG(object):
 
         """
         TreeCorrConfig = {
-            'ra_units': cls._coord_units,
-            'dec_units': cls._coord_units,
+            'ra_units': self._coord_units,
+            'dec_units': self._coord_units,
             'min_sep': scale_min,
             'max_sep': scale_max,
-            'sep_units': cls._sep_units,
-            'nbins': cls._params["n_theta"],
+            'sep_units': self._sep_units,
+            'nbins': self._params["n_theta"],
             'num_threads': n_cpu,
         }
 
         return TreeCorrConfig
 
 
-    @classmethod
-    def _write_corr(cls, ng, out_path):
+    def _write_corr(self, ng, out_path):
         """Write Corr.
 
         Write correlation output to disk.
@@ -650,7 +647,7 @@ class Compute_NG(object):
             output file path
 
         """
-        if cls._params['verbose']:
+        if self._params['verbose']:
             print(f"Writing output file {out_path}")
         ng.write(out_path, rg=None, file_type=None, precision=None)
 
@@ -677,7 +674,7 @@ class Compute_NG(object):
         Write correlation outputs to disk.
 
         """
-        self._write_corr(_ng, self._params["out_path"])
+        self._write_corr(self._ng, self._params["out_path"])
         if self._params['stack'] != 'cross':
             self._fix_treecorr_keys(self._params["out_path"])
 
@@ -711,8 +708,6 @@ class Compute_NG(object):
 
         # Write correlation outputs to disk
         self.write_correlations()
-
-
 
 
 # MKDEBUG TODO to cs_util

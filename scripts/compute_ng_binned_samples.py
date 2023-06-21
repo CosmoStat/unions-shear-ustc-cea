@@ -9,6 +9,9 @@ GGL (ng-correlation) between two (redshift-binned) input catalogues.
 
 """
 
+import sys
+
+
 from unions_wl.run import run_compute_ng_binned_samples
 
 def main(argv=None):
