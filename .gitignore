@@ -129,3 +129,5 @@ dmypy.json
 .pyre/
 
 notebooks/ng_binned/compute_ng_example.ipynb
+
+pytest.xml
