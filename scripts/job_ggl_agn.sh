@@ -274,20 +274,7 @@ function split_sample() {
     nz_opt=""
   fi
 
-  if [ "${Delta_Sigma}" == "1" ]; then
-
-      for sh in ${methods[@]}; do
-        for blind in ${blinds[@]}; do
-          parallel -j ${n_cpu} ${bin_path}/split_sample.py -v -n {1} --z_min=${z_min} --z_max=${z_max} --logM_min=${logM_min} ${nz_opt} --Delta_Sigma --dndz_source_path dndz_${sh}_${blind}.txt -o $sh --output_fname_base agn_${blind} \>\> log_job.sh ::: ${n_split_arr[@]}
-
-      done
-  done
-
-  else
-
-    parallel -j ${n_cpu} ${bin_path}/split_sample.py -v -n {1} --z_min=${z_min} --z_max=${z_max} --logM_min=${logM_min} ${nz_opt} \>\> log_job.sh ::: ${n_split_arr[@]}
-
-  fi
+  parallel -j ${n_cpu} ${bin_path}/split_sample.py -v -n {1} --z_min=${z_min} --z_max=${z_max} --logM_min=${logM_min} ${nz_opt} \>\> log_job.sh ::: ${n_split_arr[@]}
 
 }
 
@@ -312,10 +299,10 @@ function compute_ng() {
   if [ "${Delta_Sigma}" == "1" ]; then
 
     # Weighted fg
-    parallel -j ${n_cpu} ${bin_path}/compute_ng_binned_samples.py -v --input_path_fg {3}/agn_{4}_{1}.fits --input_path_bg cat_unions_{3}.fits --key_ra_fg ra --key_dec_fg dec --out_path {3}/ggl_agn_{1}_w.fits --key_w_bg=w --key_w_fg=w_{2} $arg_s --theta_min ${theta_min} --theta_max=${theta_max} \>\> log_job.sh ::: ${c_n_str_arr[@]} :::+ ${c_arr[@]} ::: ${methods[@]} ::: ${blinds[@]}
+    parallel -j ${n_cpu} ${bin_path}/compute_ng_binned_samples.py -v --input_path_fg agn_{1}.fits --input_path_bg cat_unions_{3}.fits --key_ra_fg ra --key_dec_fg dec --out_path {3}/ggl_agn_{1}_w.fits --key_w_bg=w --key_w_fg=w_{2} $arg_s --theta_min ${theta_min} --theta_max=${theta_max} --Delta_Sigma --dndz_source dndz_{3}_{4}.txt \>\> log_job.sh ::: ${c_n_str_arr[@]} :::+ ${c_arr[@]} ::: ${methods[@]} ::: ${blinds[@]}
 
     # Unweighted fg
-    parallel -j ${n_cpu} ${bin_path}/compute_ng_binned_samples.py -v --input_path_fg {3}/agn_{4}_{1}.fits --input_path_bg cat_unions_{3}.fits --key_ra_fg ra --key_dec_fg dec --out_path {3}/ggl_agn_{1}_u.fits --key_w_bg=w $arg_s --theta_min ${theta_min} --theta_max=${theta_max} \>\> log_job.sh ::: ${c_n_str_arr[@]} :::+ ${c_arr[@]} ::: ${methods[@]} ::: ${blinds[@]}
+    parallel -j ${n_cpu} ${bin_path}/compute_ng_binned_samples.py -v --input_path_fg agn_{1}.fits --input_path_bg cat_unions_{3}.fits --key_ra_fg ra --key_dec_fg dec --out_path {3}/ggl_agn_{1}_u.fits --key_w_bg=w $arg_s --theta_min ${theta_min} --theta_max=${theta_max} --Delta_Sigma --dndz_source dndz_{3}_{4}.txt \>\> log_job.sh ::: ${c_n_str_arr[@]} :::+ ${c_arr[@]} ::: ${methods[@]} ::: ${blinds[@]}
 
   else
 

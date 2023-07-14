@@ -217,7 +217,7 @@ def main(argv=None):
         file_path = params[f'dndz_{sample}_path']
         z_centers[sample], nz[sample], _ = cat_csu.read_dndz(file_path)
 
-    # Tangential shear
+    # Set up scales
 
     n_theta = 2000
     if params['scales'] == 'angular':
@@ -344,7 +344,7 @@ def main(argv=None):
     colors = ['g']
 
     for ymode, ystr in zip((False, True), ('lin', 'log')):
-        out_path = f'{params["out_base"]}_model_{ystr}.pdf'
+        out_path = f'{params["out_base"]}_{ystr}.pdf'
         plots.plot_data_1d(
             x,
             y,
@@ -358,8 +358,10 @@ def main(argv=None):
             labels=labels,
             colors=colors,
             linestyles=ls,
+            eb_linestyles=eb_linestyles,
+            xlim=xlim,
+            ylim=ylim,
         )
-
 
     return 0
 

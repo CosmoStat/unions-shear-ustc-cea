@@ -58,10 +58,13 @@ def find_scripts():
 
     sdir = 'scripts'
 
-    scripts = [os.path.join(sdir, val) for val in os.listdir(sdir) if
-            val.endswith('.py') and '__init__' not in val]
+    res = [
+        os.path.join(sdir, val) for val in os.listdir(sdir) if
+            (val.endswith('.py') or val.endswith('.sh'))
+            and '__init__' not in val
+    ]
 
-    return scripts
+    return res
 
 
 setup(

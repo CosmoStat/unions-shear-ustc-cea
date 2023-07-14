@@ -11,7 +11,6 @@ Fit GGL models to (previously computed) ng correlation.
 import sys
 
 import numpy as np
-from joblib import Parallel, delayed
 
 from uncertainties import ufloat
 import matplotlib.pyplot as plt
@@ -21,11 +20,12 @@ from astropy.io import ascii
 from optparse import OptionParser
 
 import pyccl as ccl
-from lmfit import minimize, Parameters, fit_report
+from lmfit import minimize, Parameters
 
 from unions_wl import theory
 from unions_wl import catalogue as cat_wl
 from unions_wl import defaults
+from unions_wl import fit
 
 from cs_util import plots
 from cs_util import logging
@@ -58,6 +58,7 @@ def params_default():
         'n_cpu': 1,
         'weight': 'w',
         'physical' : False,                                                     
+        'Delta_Sigma' : False,
         'verbose': False,
     }
 
@@ -68,6 +69,7 @@ def params_default():
         'n_split_max': 'int',
         'n_cpu': 'int',
         'physical': 'bool',
+        'Delta_Sigma': 'bool',
     }
 
     # Parameters which can be specified as command line option
@@ -86,6 +88,8 @@ def params_default():
             + ' distribution, or unweighted (\'u\'), default={}'
         ),
         'physical' : '2D coordinates are physical [Mpc]',
+        'Delta_Sigma' : 'excess surface mass density instead of tangential'     
+            + ' shear  default={}',
     }
 
     # Options which have one-letter shortcuts (include dash, e.g. '-n')
@@ -160,6 +164,25 @@ def parse_options(p_def, short_options, types, help_strings):
     options, args = parser.parse_args()
 
     return options
+
+
+def check_options(options):                                                     
+    """Check command line options.                                              
+                                                                                
+    Parameters                                                                  
+    ----------                                                                  
+    options: tuple                                                              
+        Command line options                                                    
+                                                                                
+    Returns                                                                     
+    -------                                                                     
+    bool                                                                        
+        Result of option check. False if invalid option value.                  
+                                                                                
+    """                                                                         
+    if options['Delta_Sigma'] and not options['physical']:                      
+        print('With Delta_Sigma=True physical needs to be True')                
+        return False
 
 
 def read_mean_std_log_M_BH(n_split_arr, weight):
@@ -239,16 +262,20 @@ def plot_data_only(ng, n_split_arr, weight, shapes, physical):
     
     """
     if not physical:
-        xlab = r'\theta'
+        xbase = r'\theta'
         sep_units = 'arcmin'
     else:
-        xlab = 'r'
+        xbase = 'r'
         sep_units = 'Mpc'
 
     fac = 1.05
-    pow_idx = 0.8
-    xlabel = rf'${xlab}$ [{sep_units}]'
-    ylabel = rf'$(\theta/${sep_unit}$)^{pow_idx} \gamma_{{\rm t}}({xlab})$'
+    pow_idx = 1
+    xlabel = rf'${xbase}$ [{sep_units}]'
+    if pow_idx != 1:
+        spre = rf'(\theta/${sep_units}$)^{pow_idx}'
+    else:
+        spre = ''
+    ylabel = rf'${spre} \gamma_{{\rm t}}({xbase})$'
     colors = {
         'SP': 'r',
         'LF': 'b',
@@ -441,6 +468,10 @@ def set_args_minimizer(
                     if not physical:
                         # transform from arcmin to deg 
                         x_w = x_w / 60
+                    else:
+                        # Error computation not yet implemented
+                        print('MKDEBUG no error bars yet!')
+                        err = y / 5
                     gt = y[w]
                     dgt = err[w]
 
@@ -449,7 +480,7 @@ def set_args_minimizer(
     return args
 
 
-def get_scales_pl(ng, n_split_arr, shapes):
+def get_scales_pl(ng, n_split_arr, shapes, physical):
 
     # Parameters to plot angular scales for theoretical prediction
     f_theta_pl = 1.1
@@ -457,7 +488,7 @@ def get_scales_pl(ng, n_split_arr, shapes):
 
     x_plot = {}
     for n_split in n_split_arr:
-        theta_arr_amin[n_split] = {}
+        x_plot[n_split] = {}
         for idx in range(n_split):
             x_plot[n_split][idx] = {}
             for sh in shapes:
@@ -478,41 +509,10 @@ def get_scales_pl(ng, n_split_arr, shapes):
     return x_plot
 
 
-def do_minimize(idx, loss, fit_params, args):
-    """Do Minimize.
-
-    Call minimize for task `idx`, and return result.
-    Can be called with `Parallel` with `idx` as iterating index.
-
-    """
-    return minimize(loss, fit_params, args=args[idx])
-
-
-def fit(args, fit_params, n_cpu, verbose):
-
-    # Number of jobs to do
-    n_fit = len(args)
-
-    if verbose:
-        print(f'Fit {n_fit} models on {n_cpu} CPUs...')
-
-    # Fit models in parallel
-    res_arr = Parallel(n_jobs=n_cpu, verbose=13)(
-        delayed(do_minimize)(
-            idx,
-            loss,
-            fit_params,
-            args
-        ) for idx in range(n_fit)
-    )
-
-    return res_arr
-
-
 def retrieve_best_fit(
     res_arr,
     args,
-    theta_arr_amin,
+    x_plot,
     n_split_arr,
     shapes,
     blinds,
@@ -562,7 +562,7 @@ def retrieve_best_fit(
                         x = x_plot[n_split][idx][sh]
 
                     extra = args[jdx][3]
-                    g_t[n_split][idx][sh][blind] = g_t_model(
+                    g_t[n_split][idx][sh][blind] = theory.g_t_model(
                         res_arr[jdx].params, x, extra
                     )
 
@@ -589,15 +589,15 @@ def plot_data_with_fits(
 
     """
     if not physical:
-        xlab = r'\theta'
+        xbase = r'\theta'
         sep_units = 'arcmin'
     else:
-        xlab = 'r'
+        xbase = 'r'
         sep_units = 'Mpc'
 
     fac = 1.05
-    xlabel = rf'${xlab}$ [{sep_units}]'
-    ylabel = r'$\gamma_{\rm t, \times}({xlab})$'
+    xlabel = rf'${xbase}$ [{sep_units}]'
+    ylabel = r'$\gamma_{\rm t, \times}({xbase})$'
     labels = [r'$\gamma_{\rm t}$', r'$\gamma_\times$', 'model']
     colors = ['g', 'g', 'g', 'b', 'b', 'b', 'r', 'r', 'r']
     eb_linestyles = ['-', ':', '', '-', ':', '', '-', ':', '']
@@ -781,6 +781,9 @@ def main(argv=None):
     for key in vars(options):
         params[key] = getattr(options, key)
 
+    if check_options(params) is False:                                          
+        return 1
+
     # Save calling command
     logging.log_command(argv)
 
@@ -836,10 +839,10 @@ def main(argv=None):
         raise ValueError(f'Invalid model type {params["model_type"]}')
 
     # Perform fits
-    res_arr = fit(args, fit_params, params['n_cpu'], params['verbose'])
+    res_arr = fit.fit(args, fit_params, params['n_cpu'], params['verbose'])
 
     # Retrieve best-fit parameters, errors, and models
-    x_plot = get_scales_pl(ng, n_split_arr, shapes)
+    x_plot = get_scales_pl(ng, n_split_arr, shapes, params['physical'])
     par_bf, std_bf, g_t = retrieve_best_fit(
         res_arr,
         args,
@@ -866,7 +869,7 @@ def main(argv=None):
         weight,
         shapes,
         blinds,
-        physical,
+        params['physical'],
     )
     if params['model_type'] == 'hod':
         plot_M_BH_M_halo(
