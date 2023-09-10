@@ -14,10 +14,11 @@ blind = sys.argv[3]
 
 hdu = fits.open(nz_hdu)
 z = hdu[1].data['Z_%s' %blind]
+wt= hdu[1].data['som_w']
 
 zmax = 5.0
 
-(n,bins,_)= plt.hist(z, bins=200, range=(0,zmax), density=True, weights=None)
+(n,bins,_)= plt.hist(z, bins=200, range=(0,zmax), density=True, weights=wt)
 
 print("zmin = ",min(z))
 print("zmax = ",max(z))
