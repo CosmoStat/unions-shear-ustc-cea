@@ -27,16 +27,19 @@ methods = ['SP', 'LF']
 
 blinds = ['A', 'B', 'C']
 
-for nz_name, method in zip(nz_names, methods):
+weights = ['som_w', 'som_weight']
+
+for nz_name, method, weight in zip(nz_names, methods, weights):
     for blind in blinds:
 
         # Open FITS file with (SOM-derived) redshifts
         hdu = fits.open(f'{work_dir}/{nz_name}')
         z1 = hdu[1].data['Z_%s' % blind]
-        wt_som = hdu[1].data['som_w']
+        wt_som = hdu[1].data[weight]
 
         # Compute and plot histogram
-        n, bins, _ = plt.hist(
+        fig, axes = plt.subplots(ncols=1, nrows=1)
+        n, bins, _ = axes.hist(
             z1,
             bins=200,
             range=(0, 5.0),
@@ -53,6 +56,9 @@ for nz_name, method in zip(nz_names, methods):
         # Save plot
         output_base = f'dndz_{method}_{blind}'
         plt.savefig(f'{output_base}.png')
+        plt.close(fig)
+        del(fig)
+        del(axes)
 
         print(f'{method} {blind} {min(z1)} {max(z1)}')
 
