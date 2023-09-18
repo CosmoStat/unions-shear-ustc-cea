@@ -14,7 +14,7 @@ blind = sys.argv[3]
 
 hdu = fits.open(nz_hdu)
 z = hdu[1].data['Z_%s' %blind]
-wt= hdu[1].data['som_w']
+wt = hdu[1].data['som_w']
 
 zmax = 5.0
 
