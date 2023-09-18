@@ -7,8 +7,9 @@ to (COSMOSIS-readable) redshift histogram ASCII file.
 
 :Authors: Lisa Goh
           Martin Kilbinger <martin.kilbinger@cea.fr>
+          Qinxun Li
 
-:Date: 2022
+:Date: 2023
 
 """
 
@@ -24,14 +25,15 @@ nz_names = [
 ]
 methods = ['SP', 'LF']
 
-blinds = ['A','B','C']
+blinds = ['A', 'B', 'C']
 
 for nz_name, method in zip(nz_names, methods):
     for blind in blinds:
 
         # Open FITS file with (SOM-derived) redshifts
         hdu = fits.open(f'{work_dir}/{nz_name}')
-        z1 = hdu[1].data['Z_%s' %blind]
+        z1 = hdu[1].data['Z_%s' % blind]
+        wt_som = hdu[1].data['som_w']
 
         # Compute and plot histogram
         n, bins, _ = plt.hist(
@@ -40,6 +42,7 @@ for nz_name, method in zip(nz_names, methods):
             range=(0, 5.0),
             density=True,
             histtype='step',
+            weights=wt_som,
             label=f'{method} blind_{blind}'
         )
 
