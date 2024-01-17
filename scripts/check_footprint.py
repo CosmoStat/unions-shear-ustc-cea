@@ -206,8 +206,8 @@ def main(argv=None):
     if params['verbose']:
         print(f'Writing objects in footprint to {params["output_path"]}')
     cols = []
-    for key in t.keys():
-        cols.append(fits.Column(name=key, array=t[key], format='E'))
+    for col_ind,key in enumerate(t.keys()):
+        cols.append(fits.Column(name=key, array=t[key], format=dat_in_footprint.columns[col_ind].format))
     cs_cat.write_fits_BinTable_file(cols, params["output_path"])
 
     # Create plots
