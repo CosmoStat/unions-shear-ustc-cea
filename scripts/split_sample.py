@@ -27,13 +27,12 @@ from astropy.table import Table
 from astropy.io import fits
 
 from unions_wl import catalogue as cat_wl
-from unions_wl import defaults
 
 from cs_util import logging
 from cs_util import calc
 from cs_util import plots
-from cs_util import cat as cat_csu
-from cs_util import cosmo as cosmo_csu
+from cs_util import cat as cs_cat
+from cs_util import cosmo as cs_cos
 
 
 def params_default():
@@ -403,7 +402,7 @@ def main(argv=None):
         cosmo = defaults.get_cosmo_default()
 
         # Source redshift distribution and distances
-        z_source, nz_source, _ = cat_csu.read_dndz(params['dndz_source_path'])
+        z_source, nz_source, _ = cs_cat.read_dndz(params['dndz_source_path'])
         a_source = 1 / (1 + z_source)
         d_ang_source = cosmo.angular_diameter_distance(a_source)
 
@@ -438,7 +437,7 @@ def main(argv=None):
                 #a_lens = 1 / (1 + z)
                 #d_ang_lens = cosmo.angular_diameter_distance(a_lens)
                 d_ang_lens_spline = d_ang_lens_interp(z)
-                sig_crit_m1_eff = cosmo_csu.sigma_crit_m1_eff(
+                sig_crit_m1_eff = cs_cos.sigma_crit_m1_eff(
                     z,
                     z_source_rebin,
                     nz_source_rebin,
@@ -599,7 +598,7 @@ def main(argv=None):
         cols = []
         for key in t.keys():
             cols.append(fits.Column(name=key, array=t[key], format='E'))
-        cat_csu.write_fits_BinTable_file(cols, out_name)
+        cs_cat.write_fits_BinTable_file(cols, out_name)
 
     return 0
 

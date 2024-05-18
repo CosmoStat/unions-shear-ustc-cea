@@ -22,11 +22,11 @@ import pyccl as ccl
 
 from unions_wl import theory
 from unions_wl import catalogue as cat_wl
-from unions_wl import defaults
 
 from cs_util import logging
 from cs_util import plots
 from cs_util import cat as cat_csu
+from cs_util import cosmo as cs_cos
 
 
 def params_default():
@@ -208,7 +208,7 @@ def main(argv=None):
     plt.rcParams['font.size'] = 18
 
     # Default cosmology
-    cosmo = defaults.get_cosmo_default()
+    cosmo = cs_cos.get_cosmo_default()
 
     # Read redshift distributions
     z_centers = {}

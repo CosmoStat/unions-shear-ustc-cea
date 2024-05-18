@@ -16,7 +16,7 @@ import treecorr
 
 from cs_util import logging
 
-from unions_wl import defaults
+from cs_util import cosmo as cs_cos
 from unions_wl.stack_ng import ng_essentials, ng_stack
 
 
@@ -407,7 +407,7 @@ class Compute_NG(object):
 
         """
         if self._params['scales'] == 'physical':
-            self._cosmo = defaults.get_cosmo_default()
+            self._cosmo = cs_cos.get_cosmo_default()
 
             # Angular distances to all objects
             a_arr = 1 / (1 + self._data['fg'][self._params['key_z']])
