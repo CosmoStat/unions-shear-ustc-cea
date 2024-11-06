@@ -23,8 +23,6 @@ import matplotlib.pylab as plt
 
 from optparse import OptionParser
 
-from unions_wl import catalogue as wl_cat
-
 from cs_util import logging
 from cs_util import calc
 from cs_util import plots
@@ -174,7 +172,7 @@ def main(argv=None):
     dec = dat[params['key_dec']]
 
     # Read input mask
-    mask, nest, nside = wl_cat.read_hp_mask(
+    mask, nest, nside = cs_cat.read_hp_mask(
         params['input_mask'],
         verbose=params['verbose']
     )
