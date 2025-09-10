@@ -5,7 +5,7 @@ This module sets up runs of the unions_wl computations.
 :Author: Martin Kilbinger <martin.kilbinger@cea.fr>
 
 """
-
+import os
 import numpy as np
 
 from astropy.io import fits
@@ -15,6 +15,7 @@ from tqdm import tqdm
 import treecorr
 
 from cs_util import logging
+from cs_util import plots as cs_plots
 
 from unions_wl import defaults
 from unions_wl.stack_ng import ng_essentials, ng_stack
@@ -141,8 +142,8 @@ class Compute_NG(object):
         """
         # Specify all parameter names and default values
         self._params = {
-            'input_path_fg': 'unions_sdss_matched_lens.fits',
-            'input_path_bg': 'unions_sdss_matched_source.fits',
+            'input_path_fg': 'bg_shear.fits',
+            'input_path_bg': 'fg_positions.fits',
             'key_ra_fg': 'RA',
             'key_dec_fg': 'DEC',
             'key_ra_bg': 'RA',
@@ -159,7 +160,7 @@ class Compute_NG(object):
             'n_theta': 10,
             'scales' : 'angular',
             'stack': 'auto',
-            'out_path' : './ggl_unions_sdss_matched.txt',
+            'out_path' : './ggl_out.txt',
             'out_path_jk' : None,
             'n_cpu': 1,
             'verbose': False,
@@ -391,8 +392,8 @@ class Compute_NG(object):
                     g1=my_g1,
                     g2=my_g2,
                     w=w[sample][idx:idx+1],
-                    ra_units=coord_units,
-                    dec_units=coord_units,
+                    ra_units=self._coord_units,
+                    dec_units=self._coord_units,
                 )
                 cat.append(my_cat)
 
@@ -685,8 +686,51 @@ class Compute_NG(object):
                 out_path_jk = f'{base}_jk{ext}'
             else:
                 out_path_jk = self._params['out_path_jk']
-            self._write_corr(ng_jk, out_path_jk)
+            self._write_corr(self._ng_jk, out_path_jk)
             self._fix_treecorr_keys(out_path_jk)
+
+    def plot_EB(self, out_path=None):
+        """
+        Plot EB.
+        
+        Plot E- and B-modes.
+        
+        """
+        obj = self
+
+        x = []
+        for idx in (0, 1):
+            x.append(obj._ng.meanr * cs_plots.dx(idx, nx=2, log=True))
+        y = [obj._ng.xi, obj._ng.xi_im]
+        dy = [np.sqrt(obj._ng.varxi)] * 2
+
+        title = "n-g correlation"
+        if obj._params["scales"] == "angular":
+            units = obj._sep_units
+        elif obj._params["scales"] == "physical":
+            units = "Mpc"
+        xlabel = rf'$\theta$ [{units}]'
+        ylabel = r'$\gamma_{{\rm t}, \times}(\theta)$'
+        labels = [r'$\gamma_{\rm t}$', r'$\gamma_\times$']
+        fac = 1.3
+        xlim = [
+            obj._params["theta_min"] / fac,
+            obj._params["theta_max"] * fac,
+        ]
+        cs_plots.plot_data_1d(
+            x,
+            y,
+            dy,
+            title,
+            xlabel,
+            ylabel,
+            labels=labels,
+            xlog=True,
+            out_path=out_path,
+            close_fig=False,
+            xlim=xlim,
+)
+
 
     def run(self):
         """Run.
