@@ -108,7 +108,7 @@ class ng_essentials(object):
 
         """
         # If ng_min and ng_sub are two subsequent outputs of
-        # treecorr.proess_cross, these are weighted quantities.
+        # treecorr.process_cross, these are weighted quantities.
         # This is because the cumulative processing adds
         # weighted results.
         for jdx in range(len(self.meanr)):
@@ -172,11 +172,12 @@ class ng_essentials(object):
         # Original angular x values [rad]
         x = ng.meanr
 
-        # New x values: transfer from physical [Mpc] to angular [rad]
+        # New x values: transfer from fixed, input physical [Mpc] to
+        # angular [rad]
         x_new = r / d_ang
 
-        # Re-bin to new angular coordinates and add (= stack)
-
+        # Re-bin to new (fixed, input) angular coordinates and add (= stack)
+        
         # Angular scales: individual ones were not weighted, add weight
         # back here
         self.meanr += get_interp(x_new, x, ng.meanr * ng.weight)

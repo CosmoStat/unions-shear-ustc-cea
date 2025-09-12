@@ -158,6 +158,7 @@ class Compute_NG(object):
             'theta_min': 0.1,
             'theta_max': 200,
             'n_theta': 10,
+            'npatch': 15,
             'scales' : 'angular',
             'stack': 'auto',
             'out_path' : './ggl_out.txt',
@@ -195,6 +196,7 @@ class Compute_NG(object):
             'theta_min': 'minimum angular scale, default={}',
             'theta_max': 'maximum angular scale, default={}',
             'n_theta': 'number of angular scales, default={}',
+            'npatch': 'number of jackknife patches, detault={}',
             'scales' : (
                 '2D coordinates (scales) are angular (arcmin) or physical'
                 + ' [Mpc], default={}'
@@ -373,6 +375,7 @@ class Compute_NG(object):
             	w=w[sample],
             	ra_units=self._coord_units,
             	dec_units=self._coord_units,
+                npatch=self._params["npatch"],
         	)
         	cat = [my_cat]
     	else:
@@ -394,6 +397,7 @@ class Compute_NG(object):
                     w=w[sample][idx:idx+1],
                     ra_units=self._coord_units,
                     dec_units=self._coord_units,
+                    npatch=self._params["npatch"],
                 )
                 cat.append(my_cat)
 
@@ -425,6 +429,38 @@ class Compute_NG(object):
             theta_max,
             self._params['n_cpu'],
         )
+        
+    def set_rnom_for_cross(self):
+        """Set Rnom For Cross.
+        
+        Set physical scales rnom for cross stacking, overriding the mean
+        angular scales.
+        
+        """
+        d_ang_mean = np.mean(self._d_ang_arr)
+        # Get physical scale from mean angular scales. We could also
+        # use r_nom or the fixe input r (see get_theta_from_r_mean_fg).
+        r_mean = unit_to_rad(self._ng.meanr, self._sep_units) * d_ang_mean
+        # rnom cannot be overritten, thus write to meanr
+        self._ng.meanr = r_mean
+        
+        
+    def get_theta_from_r_mean_fg(self, sep_units="arcmin"):
+        """Get Theta From R Mean Fg.
+        
+        Compute angular scale from physical scale at mean foreground
+        distance or redshift.
+        
+        """
+        r_min = self._params['theta_min']
+        r_max = self._params['theta_max']
+        r = np.logspace(np.log10(r_min), np.log10(r_max), self._params["n_theta"])
+        d_ang_mean = np.mean(self._d_ang_arr)
+        theta = r / d_ang_mean
+        theta_units = rad_to_unit(theta, self._sep_units)
+        if self._params["verbose"]:
+            print(f"r [Mpc] = {r}")
+            print(f"theta [{sep_units}] = {theta_units}")
 
     def get_theta_min_max(self):
         """Get Theta Min MaX.
@@ -495,7 +531,7 @@ class Compute_NG(object):
             self.correlate_n_fg()
             self.stack()
         else:
-            # Correlate onec with all fg objects
+            # Correlate once with all fg objects
             self.correlate_1()
             self._ng_jk = None
 
@@ -528,7 +564,7 @@ class Compute_NG(object):
                 num_threads=params['n_cpu']
             )
 
-            # Last correlation = difference betwen two cumulative results
+            # Last correlation = difference between two cumulative results
             ng_diff = ng_essentials(self._params["n_theta"])
             ng_diff.difference(self._ng, ng_prev)
 
@@ -544,6 +580,7 @@ class Compute_NG(object):
                 print('Cross (treecorr process_cross) stacking of fg objects')
             varg = treecorr.calculateVarG(self._cats['bg'])
             self._ng.finalize(varg)
+            self.set_rnom_for_cross()
 
         if n_corr == 0:
             raise ValueError('No correlations computed')
@@ -552,7 +589,7 @@ class Compute_NG(object):
     def correlate_1(self):
         """Correlate One.
 
-        Carry one one correlation with entire foreground catalogue.
+        Carry out one correlation with entire foreground catalogue.
 
         """
         # One foreground catalogue: run single simultaneous correlation
@@ -599,6 +636,9 @@ class Compute_NG(object):
                 self._all_ng,
                 self._d_ang_arr,
             )
+            
+            print("get theta from r mean")
+            self.get_theta_from_r_mean_fg()
         else:
             self._ng_jk = None
 
@@ -622,6 +662,11 @@ class Compute_NG(object):
             treecorr configuration information
 
         """
+        if self._params["npatch"] > 1:
+            var_method = "jackknife"
+        else:
+            var_method = "shot"
+
         TreeCorrConfig = {
             'ra_units': self._coord_units,
             'dec_units': self._coord_units,
@@ -630,6 +675,8 @@ class Compute_NG(object):
             'sep_units': self._sep_units,
             'nbins': self._params["n_theta"],
             'num_threads': n_cpu,
+            'var_method': var_method,
+
         }
 
         return TreeCorrConfig
@@ -699,17 +746,32 @@ class Compute_NG(object):
         obj = self
 
         x = []
+        if obj._params["scales"] == "angular":
+            my_x = obj._ng.meanr
+            xvar = r"\theta"
+            units = obj._sep_units
+            second_x_axis = None
+            second_x_label = None
+        elif obj._params["scales"] == "physical":
+            xvar = "r"
+            units = "Mpc"
+
+            if obj._params["stack"] == "cross":
+                my_x = obj._ng.meanr
+                second_x_axis = obj._ng.rnom
+            else:         
+                my_x = obj._ng.rnom
+                second_x_axis = obj._ng.meanr
+        
+            second_x_label = rf'$\theta$ [{obj._sep_units}]'
+        
         for idx in (0, 1):
-            x.append(obj._ng.meanr * cs_plots.dx(idx, nx=2, log=True))
+            x.append(my_x * cs_plots.dx(idx, nx=2, log=True))
         y = [obj._ng.xi, obj._ng.xi_im]
         dy = [np.sqrt(obj._ng.varxi)] * 2
 
         title = "n-g correlation"
-        if obj._params["scales"] == "angular":
-            units = obj._sep_units
-        elif obj._params["scales"] == "physical":
-            units = "Mpc"
-        xlabel = rf'$\theta$ [{units}]'
+        xlabel = rf'${xvar}$ [{units}]'
         ylabel = r'$\gamma_{{\rm t}, \times}(\theta)$'
         labels = [r'$\gamma_{\rm t}$', r'$\gamma_\times$']
         fac = 1.3
@@ -717,6 +779,7 @@ class Compute_NG(object):
             obj._params["theta_min"] / fac,
             obj._params["theta_max"] * fac,
         ]
+        
         cs_plots.plot_data_1d(
             x,
             y,
@@ -729,7 +792,10 @@ class Compute_NG(object):
             out_path=out_path,
             close_fig=False,
             xlim=xlim,
-)
+        )
+        print("MKDEBUG second x")
+        #    second_x_axis=second_x_axis,
+        #    second_x_label=second_x_label,
 
 
     def run(self):
@@ -762,7 +828,7 @@ def rad_to_unit(value, unit):
 
 def unit_to_rad(value, unit):
 
-    return value * units.Unit(units).to('rad')
+    return value * units.Unit(unit).to('rad')
 
 
 def run_compute_ng_binned_samples(*argv):
