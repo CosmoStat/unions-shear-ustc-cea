@@ -154,6 +154,7 @@ class Compute_NG(object):
             'key_e2': 'e2',
             'sign_e1': +1,
             'sign_e2': +1,
+            'shape': 'gamma',
             'key_z': 'z',
             'theta_min': 0.1,
             'theta_max': 200,
@@ -185,10 +186,11 @@ class Compute_NG(object):
             'key_dec_bg': 'background declination column name, default={}',
             'key_w_fg': 'foreground weight column name, default={}',
             'key_w_bg': 'background weight column name, default={}',
-            'key_e1': 'first ellipticity component column name, default={}',
-            'key_e2': 'second ellipticity component column name, default={}',
-            'sign_e1': 'first ellipticity multiplier (sign), default={}',
-            'sign_e2': 'first ellipticity multiplier (sign), default={}',
+            'key_e1': 'first shape component column name, default={}',
+            'key_e2': 'second shape component column name, default={}',
+            'sign_e1': 'first shape multiplier (sign), default={}',
+            'sign_e2': 'first shape multiplier (sign), default={}',
+            'shape': 'shpe type; allowed are gamma, F, G, default={}',
             'key_z': (
                 'foreground redshift column name (if scales=physical),'
                 + ' default={}'
@@ -279,12 +281,13 @@ class Compute_NG(object):
             )
 
         # Set fg and bg sample data columns
-        # Shear components g1, g2: Set `None` for foreground
-        g1 = {
+        # shape (shear or flexion) components shape_1, shape_2:
+        # Set `None` for foreground
+        shape_1 = {
             'fg': None,
             'bg': self._data['bg'][params['key_e1']] * params['sign_e1']
         }
-        g2 = {
+        shape_2 = {
             'fg': None,
             'bg': self._data['bg'][params['key_e2']] * params['sign_e2']
         }
@@ -316,8 +319,8 @@ class Compute_NG(object):
 
             self._cats[sample] = self.create_treecorr_catalogs(
                 sample,
-                g1,
-                g2,
+                shape_1,
+                shape_2,
                 w,
                 split,
             )
@@ -330,70 +333,95 @@ class Compute_NG(object):
 
     def create_treecorr_catalogs(
         self,
-    	sample,
-    	g1,
-    	g2,
-    	w,
-    	split,
+        sample,
+        shape_1,
+        shape_2,
+        w,
+        split,
 	):
-    	"""Create Treecorr Catalogs.
+        """Create Treecorr Catalogs.
 
-    	Return treecorr catalog(s).
+        Return treecorr catalog(s).
 
-    	Parameters
-    	----------
-    	sample : str
-        	sample string
-    	g1 : dict
-        	first shear component
-    	g2 : dict
-        	second shear component
-    	w : dict
-        	weight
-    	split : bool
-        	if True split foreground sample into individual objects
+        Parameters
+        ----------
+        sample : str
+            sample string
+        shape_1 : dict
+            first shape (shear, F, or G) component
+        shape_2 : dict
+            second shape (shear, F, or G) component
+        w : dict
+            weight
+        split : bool
+            if True split foreground sample into individual objects
 
-    	Returns
-    	-------
-    	list
-        	treecorr Cataloge objects
+        Returns
+        -------
+        list
+            treecorr Cataloge objects
 
-    	"""
+        """
         # Set shortcuts
-    	key_ra = self._params[f"key_ra_{sample}"]
-    	key_dec = self._params[f"key_dec_{sample}"]
+        key_ra = self._params[f"key_ra_{sample}"]
+        key_dec = self._params[f"key_dec_{sample}"]
 
-    	cat = []
-    	if not split:
+        g1 = g2 = v1 = v2 = t1 = t2 = None
+        cat = []
+        if not split:
+
+            g1 = g2 = v1 = v2 = t1 = t2 = None
+            if self._params["shape"] == "gamma":
+                g1 = shape_1[sample]
+                g2 = shape_2[sample]
+            elif self._params["shape"] == "F":
+                v1 = shape_1[sample]
+                v2 = shape_2[sample]
+            elif self._params["shape"] == "G":
+                t1 = shape_1[sample]
+                t2 = shape_2[sample]
 
             # Create single catalogue
-        	my_cat = treecorr.Catalog(
-            	ra=self._data[sample][key_ra],
-            	dec=self._data[sample][key_dec],
-            	g1=g1[sample],
-            	g2=g2[sample],
-            	w=w[sample],
-            	ra_units=self._coord_units,
-            	dec_units=self._coord_units,
+            my_cat = treecorr.Catalog(
+                ra=self._data[sample][key_ra],
+                dec=self._data[sample][key_dec],
+                g1=g1,
+                g2=g2,
+                v1=v1,
+                v2=v2,
+                t1=t1,
+                t2=t2,
+                w=w[sample],
+                ra_units=self._coord_units,
+                dec_units=self._coord_units,
                 npatch=self._params["npatch"],
-        	)
-        	cat = [my_cat]
-    	else:
+            )
+            cat = [my_cat]
+        else:
+
             # Create individual catalogue for each object
             n_obj = len(self._data[sample][key_ra])
             for idx in range(n_obj):
-                if not g1[sample]:
-                    my_g1 = None
-                    my_g2 = None
-                else:
-                    my_g1 = g1[sample][idx:idx+1]
-                    my_g2 = g2[sample][idx:idx+1]
+                if shape_1[sample]:
+                    if obj._params["shape"] == "gamma":
+                        g1 = shape_1[sample][idx:idx+1]
+                        g2 = shape_2[sample][idx:idx+1]
+                    elif self._params["shape"] == "F":
+                        v1 = shape_1[sample][idx:idx+1]
+                        v2 = shape_2[sample][idx:idx+1]
+                    elif self._params["shape"] == "G":
+                        t1 = shape_1[sample][idx:idx+1]
+                        t2 = shape_2[sample][idx:idx+1]
 
                 my_cat = treecorr.Catalog(
                     ra=self._data[sample][key_ra][idx:idx+1],
                     dec=self._data[sample][key_dec][idx:idx+1],
-                    g1=my_g1,
-                    g2=my_g2,
+                    g1=g1,
+                    g2=g2,
+                    v1=v1,
+                    v2=v2,
+                    t1=t1,
+                    t2=t2,
                     w=w[sample][idx:idx+1],
                     ra_units=self._coord_units,
                     dec_units=self._coord_units,
@@ -401,7 +429,7 @@ class Compute_NG(object):
                 )
                 cat.append(my_cat)
 
-    	return cat
+        return cat
 
     def set_up_treecorr_config(self):
         """Set Up Trecorr Config.
@@ -472,9 +500,9 @@ class Compute_NG(object):
         float
             minimum angular scale
         float
-        	maximum angular scale
+            maximum angular scale
 
-    	"""
+        """
         r_min = self._params['theta_min']
         r_max = self._params['theta_max']
         d_ang_arr = self._d_ang_arr
@@ -736,7 +764,7 @@ class Compute_NG(object):
             self._write_corr(self._ng_jk, out_path_jk)
             self._fix_treecorr_keys(out_path_jk)
 
-    def plot_EB(self, out_path=None):
+    def plot_EB(self, out_base=None, shape="gamma"):
         """
         Plot EB.
         
@@ -770,10 +798,21 @@ class Compute_NG(object):
         y = [obj._ng.xi, obj._ng.xi_im]
         dy = [np.sqrt(obj._ng.varxi)] * 2
 
-        title = "n-g correlation"
+        title = out_base
         xlabel = rf'${xvar}$ [{units}]'
-        ylabel = r'$\gamma_{{\rm t}, \times}(\theta)$'
-        labels = [r'$\gamma_{\rm t}$', r'$\gamma_\times$']
+        
+        label = shape
+        if shape == "F":
+            ylabel = r"1-flexion $F$ [arcsec$^{-1}$]"
+        elif shape == "G":
+            ylabel = r"3-flexion $G$ [arcsec$^{-1}$]"
+        elif shape == "gamma":
+            label = rf"\{shape}"
+            ylabel = rf"shear ${label}$"
+        else:
+            ylabel = shape
+
+        labels = [rf'${label}_{{\rm t}}$', rf'${label}_{{\times}}$']
         fac = 1.3
         xlim = [
             obj._params["theta_min"] / fac,
@@ -789,14 +828,14 @@ class Compute_NG(object):
             ylabel,
             labels=labels,
             xlog=True,
-            out_path=out_path,
+            out_path=f"{out_base}.png",
             close_fig=False,
             xlim=xlim,
-        )
-        print("MKDEBUG second x")
-        #    second_x_axis=second_x_axis,
-        #    second_x_label=second_x_label,
-
+            second_x_axis=second_x_axis,
+            second_x_label=second_x_label,
+       )
+#        print("MKDEBUG second x")
+ 
 
     def run(self):
         """Run.
