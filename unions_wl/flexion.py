@@ -53,7 +53,7 @@ class Compute_ng(object):
             )
 
 
-    def set_cat(self, df, shape="gamma", angle="theta", from_fits=False, c2_sign=+1, flip_dec=True):
+    def set_cat(self, df, shape="gamma", angle="theta", from_fits=False):
 
         if shape is None:
             self._density = self.get_Catalogue(
@@ -61,8 +61,6 @@ class Compute_ng(object):
                 shape=None,
                 angle=angle,
                 from_fits=from_fits,
-                c2_sign=c2_sign,
-                flip_dec=flip_dec,
             )
         else:
             self._shapes[shape] = self.get_Catalogue(
@@ -70,17 +68,15 @@ class Compute_ng(object):
                 shape=shape,
                 angle=angle,
                 from_fits=from_fits,
-                c2_sign=c2_sign,
-                flip_dec=flip_dec,
             )
 
-    def set_cat_from_fits(self, path, shape="gamma", c2_sign=+1, flip_dec=True):
+    def set_cat_from_fits(self, path, shape="gamma"):
 
         with fits.open(path) as hdu_list:
             data = Table(hdu_list[1].data)
         df = data.to_pandas()
 
-        self.set_cat(df, shape=shape, from_fits=True, c2_sign=c2_sign, flip_dec=True)
+        self.set_cat(df, shape=shape, from_fits=True)
 
     def extract_fields_for_cat(
         self,
@@ -88,43 +84,36 @@ class Compute_ng(object):
         angle="theta",
         shape=None,
         from_fits=False,
-        c2_sign=+1,
         only_valid=True,
-        flip_dec=True,
     ):
 
         g1 = g2 = v1 = v2 = t1 = t2 = None
 
-        if not from_fits:
-            ra, dec = get_ra_dec(df, angle=angle, flip_dec=flip_dec)
+        ra = df["RA"]
+        dec = df["Dec"]
 
+        if not from_fits:
             if shape == "gamma":
                 g1 = np.real(df[shape])
-                g2 = np.imag(df[shape]) * c2_sign                    
+                g2 = np.imag(df[shape])
             elif shape == "F":
                 v1 = np.real(df["F_inv_asec"])
-                v2 = np.imag(df["F_inv_asec"]) * c2_sign
+                v2 = np.imag(df["F_inv_asec"])
             elif shape == "G":
                 t1 = np.real(df["G_inv_asec"])
-                t2 = np.imag(df["G_inv_asec"]) * c2_sign
+                t2 = np.imag(df["G_inv_asec"])
             elif shape is not None:
                 raise ValueError(f"shape {shape} not implemented")
         else:
-            ra = df["RA"]
-            if not flip_dec:
-                dec = df["Dec"]
-            else:
-                dec = 90 - df["Dec"]
-
             if shape == "gamma":
                 g1 = df["e1"]
-                g2 = df["e2"] * c2_sign
+                g2 = df["e2"]
             elif shape == "F":
                 v1 = df["v1"]
-                v2 = df["v2"] * c2_sign
+                v2 = df["v2"]
             elif shape == "G":
                 t1 = df["t1"]
-                t2 = df["t2"] * c2_sign
+                t2 = df["t2"]
             elif shape is not None:
                 raise ValueError(f"Invalid shape {shape}")
 
@@ -159,8 +148,6 @@ class Compute_ng(object):
         angle="theta",
         shape="gamma",
         from_fits=False,
-        c2_sign=+1,
-        flip_dec=True,
     ):
 
         ra, dec, g1, g2, v1, v2, t1, t2 = self.extract_fields_for_cat(
@@ -168,8 +155,6 @@ class Compute_ng(object):
             angle=angle,
             shape=shape,
             from_fits=from_fits,
-            c2_sign=c2_sign,
-            flip_dec=flip_dec,
         )
         units = "deg"
         
@@ -186,7 +171,7 @@ class Compute_ng(object):
             dec_units=units,
             npatch=self._npatch,
         )
-
+        
         return cat
     
     def process(self, shape="gamma"):
@@ -267,7 +252,11 @@ def get_F_G(*, d_111, d_112, d_122, d_222, d_211=None, d_212=None):
     return F, G
 
 
-def fill_lensing_quantities(df):
+def fill_lensing_quantities(df, angle="theta", flip_dec=True, c1_sign=+1, c2_sign=+1):
+
+    ra, dec = get_ra_dec(df, angle=angle, flip_dec=flip_dec)
+    df.loc[:, "RA"] = ra
+    df.loc[:, "Dec"] = dec
 
     # Get lensing quantities
     kappa, gamma = get_kappa_gamma(
@@ -276,8 +265,8 @@ def fill_lensing_quantities(df):
     df.loc[:, "kappa"] = kappa
     df.loc[:, "gamma"] = gamma
     (
-        F,
-        G,
+        df["F"],
+        df["G"],
     ) = get_F_G(
         d_111=df["d111"],
         d_112=df["d112"],
@@ -287,8 +276,16 @@ def fill_lensing_quantities(df):
         d_212=df["d212"],
     )
 
-    df.loc[:, "F_inv_asec"] = inv_rad_to_inv_asec(F)
-    df["G_inv_asec"] = inv_rad_to_inv_asec(G)
+    if c1_sign * c2_sign not in (-1, +1):
+        raise ValueError(f"Invalid c1/2 signs {c1_sign:+d}/{c2_sign:+d}")
+    
+    for shape in ("F", "G"):
+        df[shape] = df[shape].apply(
+        lambda x: complex(x.real * c1_sign, x.imag * c2_sign)
+    )
+
+    df.loc[:, "F_inv_asec"] = inv_rad_to_inv_asec(df["F"])
+    df.loc[:, "G_inv_asec"] = inv_rad_to_inv_asec(df["G"])
 
     df["gamma_abs"] = np.abs(df["gamma"])
     df["F_inv_asec_abs"] = np.abs(df["F_inv_asec"])
@@ -470,18 +467,16 @@ def add_two_comp(cols, base, df, key):
         fits.Column(name=f"{base}2", array=df[key].values.imag, format="E")
     )
 
-def write_to_fits(df, output_path, angle="theta", shape="gamma"):
+def write_to_fits(df, output_path, shape="gamma"):
     """Write To Fits.
         Write position, shear, flexion F or G flexion catalogue
         to a FITS file.
     
     """
     cols = []
-
-    ra, dec = get_ra_dec(df, angle=angle)
-    
-    cols.append(fits.Column(name="RA", array=ra, format="E"))
-    cols.append(fits.Column(name="Dec", array=dec, format="E"))
+        
+    cols.append(fits.Column(name="RA", array=df["RA"], format="E"))
+    cols.append(fits.Column(name="Dec", array=df["Dec"], format="E"))
 
     if shape is None:
         # foreground position + redshift catalogue
@@ -496,13 +491,13 @@ def write_to_fits(df, output_path, angle="theta", shape="gamma"):
         else:
             raise ValueError(f"Invalid shape {shape}")
 
-    cols.append(fits.Column(name="w", array=np.ones_like(ra), format="E"))
+    cols.append(fits.Column(name="w", array=np.ones_like(df["RA"]), format="E"))
         
     hdu = fits.BinTableHDU.from_columns(cols)
     hdu.writeto(output_path, overwrite=True)
 
 
-def test(df_fg, df_bg, c2_sign=+1, flip_dec=False):
+def test(df_fg, df_bg):
     """Test.
     
     Test of shear and flexion correlations. Is being called from
@@ -514,10 +509,6 @@ def test(df_fg, df_bg, c2_sign=+1, flip_dec=False):
         foreground (cluster) catalogue
     df_bg: pandas.df
         background shear and flexion catalogue
-    c2_sign: int, optional
-        sign to multiply second shear and flexion component; default is +1
-    flip_dec: bool, optional
-        if True, flip Dec coordinate; default is ``False``
     
     """
     # Use live df or read from file
@@ -527,15 +518,15 @@ def test(df_fg, df_bg, c2_sign=+1, flip_dec=False):
 
         if not from_fits:
             # Position fg catalogue
-            cng.set_cat(df_fg, shape=None, flip_dec=flip_dec)
+            cng.set_cat(df_fg, shape=None)
 
             # Lensing bg catalogues
             for shape in ("gamma", "F", "G"):
-                cng.set_cat(df_bg, shape=shape, c2_sign=c2_sign, flip_dec=flip_dec)
+                cng.set_cat(df_bg, shape=shape)
         else:
             cng.set_cat_from_fits("fg.fits", shape=None)
             for shape in ("gamma", "F", "G"):
-                cng.set_cat_from_fits(f"bg_{shape}.fits", shape=shape, c2_sign=c2_sign, flip_dec=flip_dec)
+                cng.set_cat_from_fits(f"bg_{shape}.fits", shape=shape)
 
         for shape in ("gamma", "F", "G"):
             cng.process(shape=shape)

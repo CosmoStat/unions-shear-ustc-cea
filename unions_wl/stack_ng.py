@@ -262,7 +262,7 @@ class ng_essentials(object):
         # Log-scales: TODO
 
 
-def ng_stack(TreeCorrConfig, all_ng, all_d_ang):
+def ng_stack(TreeCorrConfig, all_ng, all_d_ang, shape="gamma"):
     """NG Stack.
 
     Stack number-shear correlations.
@@ -285,8 +285,15 @@ def ng_stack(TreeCorrConfig, all_ng, all_d_ang):
 
     """
     # Initialise combined correlation objects
-    ng_comb = treecorr.NGCorrelation(TreeCorrConfig)
-    ng_comb_jk = treecorr.NGCorrelation(TreeCorrConfig)
+    if shape == "gamma":
+        ng_comb = treecorr.NGCorrelation(TreeCorrConfig)
+        ng_comb_jk = treecorr.NGCorrelation(TreeCorrConfig)
+    if shape == "F":
+        ng_comb = treecorr.NVCorrelation(TreeCorrConfig)
+        ng_comb_jk = treecorr.NVCorrelation(TreeCorrConfig)
+    if shape == "G":
+        ng_comb = treecorr.NTCorrelation(TreeCorrConfig)
+        ng_comb_jk = treecorr.NTCorrelation(TreeCorrConfig)
 
     n_bins = len(ng_comb.rnom)
     sep_units = ng_comb.sep_units

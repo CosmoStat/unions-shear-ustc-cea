@@ -7,24 +7,11 @@
 # export QT_QPA_PLATFORM=offscreen
 
 # %%
-from IPython import get_ipython
-
-# %%
-ipython = get_ipython()
-
-# %%
-if ipython:
-    ipython.run_line_magic("load_ext", "autoreload")
-    ipython.run_line_magic("autoreload", "2")
-    ipython.run_line_magic("load_ext", "log_cell_time")
-    ipython.run_line_magic("matplotlib", "inline")
-
-# %%
 import os
 import numpy as np
 import matplotlib.pylab as plt
 
-from cs_util import plots
+from cs_util import plots as cs_plots
 plt.rcParams['font.size'] = 20
 
 from unions_wl import run
@@ -34,6 +21,8 @@ from unions_wl import run
 def set_params_in(shape):
     
     params_in = {}
+
+    params_in["shape"] = shape
 
     # Input catalogue names
     params_in["input_path_fg"] = "fg.fits"
@@ -57,7 +46,7 @@ def set_params_in(shape):
     return params_in
 
 # %%
-def run_and_plot(obj, params_in, shape, mode="angular", stack="auto"):
+def run_and_plot(obj, params_in, shape, ax=None, mode="angular", stack="auto"):
  
     out_base = f"{shape}_cl_{mode}_{stack}"
 
@@ -80,7 +69,10 @@ def run_and_plot(obj, params_in, shape, mode="angular", stack="auto"):
     
     obj.run()
 
-    obj.plot_EB(out_base, shape=shape)
+    if ax is not None:
+        # Mosaic plot: Don't save
+        out_base = None
+    obj.plot_EB(out_base=out_base, ax=ax, shape=shape)
 
 
 # %%
@@ -91,15 +83,33 @@ cases = [
     ("physical", "cross"),
 ]
 
-for shape in ("gamma", "F", "G"):
-    params_in = set_params_in(shape)
+mosaic_plot = True
 
-    # Create compute_ng instance
-    obj = run.Compute_NG()
+for mode, stack in cases:
 
-    for mode, stack in cases:
+    if mosaic_plot:
+        # Create multiple axes
+        fig, axes = plt.subplots(nrows=1, ncols=3, figsize=(30, 10))
+
+    for idx, shape in enumerate(("gamma", "F", "G")):
+        params_in = set_params_in(shape)
+
+        # Create compute_ng instance
+        obj = run.Compute_NG()
+
+        if mosaic_plot is False:
+            # No axes -> save single plot
+            ax = None
+        else:
+            # Pick corresponding axis
+            ax = axes[idx]
+
         print("Running case:", shape, mode, stack)
-        run_and_plot(obj, params_in, shape, mode=mode, stack=stack)
+        run_and_plot(obj, params_in, shape, ax=ax, mode=mode, stack=stack)
+
+    if mosaic_plot:
+        cs_plots.savefig(f"cl_{mode}_{stack}.png")
 
 # %%
-plt.close()
+if mosaic_plot is False:
+    _ = plt.close()

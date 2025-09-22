@@ -327,7 +327,7 @@ class Compute_NG(object):
 
         if params['verbose']:
             print(
-                f"Correlating 1 bg with {len(self._cats['fg'])} fg"
+                f"Correlating 1 bg {params['shape']} cat with {len(self._cats['fg'])} fg cats"
                 + f" catalogues..."
             )
 
@@ -403,7 +403,7 @@ class Compute_NG(object):
             n_obj = len(self._data[sample][key_ra])
             for idx in range(n_obj):
                 if shape_1[sample]:
-                    if obj._params["shape"] == "gamma":
+                    if self._params["shape"] == "gamma":
                         g1 = shape_1[sample][idx:idx+1]
                         g2 = shape_2[sample][idx:idx+1]
                     elif self._params["shape"] == "F":
@@ -553,7 +553,13 @@ class Compute_NG(object):
         Main function to compute correlations.
 
         """
-        self._ng = treecorr.NGCorrelation(self._TreeCorrConfig)
+        if self._params["shape"] == "gamma":
+            self._ng = treecorr.NGCorrelation(self._TreeCorrConfig)
+        elif self._params["shape"] == "F":
+            self._ng = treecorr.NVCorrelation(self._TreeCorrConfig)
+        elif self._params["shape"] == "G":
+            self._ng = treecorr.NTCorrelation(self._TreeCorrConfig)
+
         if len(self._cats['fg']) > 1:
             # Correlate n_fg times (for each fg object) and stack
             self.correlate_n_fg()
@@ -663,6 +669,7 @@ class Compute_NG(object):
                 TreeCorrConfig_for_stack,
                 self._all_ng,
                 self._d_ang_arr,
+                shape=self._params["shape"],
             )
             
             print("get theta from r mean")
@@ -725,7 +732,7 @@ class Compute_NG(object):
         """
         if self._params['verbose']:
             print(f"Writing output file {out_path}")
-        ng.write(out_path, rg=None, file_type=None, precision=None)
+        ng.write(out_path, file_type=None, precision=None)
 
     @classmethod
     def _fix_treecorr_keys(cls, path):
@@ -764,7 +771,7 @@ class Compute_NG(object):
             self._write_corr(self._ng_jk, out_path_jk)
             self._fix_treecorr_keys(out_path_jk)
 
-    def plot_EB(self, out_base=None, shape="gamma"):
+    def plot_EB(self, out_base=None, ax=None, shape="gamma"):
         """
         Plot EB.
         
@@ -786,11 +793,11 @@ class Compute_NG(object):
 
             if obj._params["stack"] == "cross":
                 my_x = obj._ng.meanr
-                second_x_axis = obj._ng.rnom
             else:         
                 my_x = obj._ng.rnom
-                second_x_axis = obj._ng.meanr
-        
+            #second_x_axis = cs_plots.log_ticks(my_x)
+            every = 3
+            second_a_axis = my_x[::every]
             second_x_label = rf'$\theta$ [{obj._sep_units}]'
         
         for idx in (0, 1):
@@ -818,6 +825,11 @@ class Compute_NG(object):
             obj._params["theta_min"] / fac,
             obj._params["theta_max"] * fac,
         ]
+
+        if out_base:
+            out_path=f"{out_base}.png",
+        else:
+            out_path = None
         
         cs_plots.plot_data_1d(
             x,
@@ -828,14 +840,12 @@ class Compute_NG(object):
             ylabel,
             labels=labels,
             xlog=True,
-            out_path=f"{out_base}.png",
-            close_fig=False,
+            out_path=out_path,
+            ax=ax,
             xlim=xlim,
             second_x_axis=second_x_axis,
             second_x_label=second_x_label,
-       )
-#        print("MKDEBUG second x")
- 
+       ) 
 
     def run(self):
         """Run.
