@@ -795,11 +795,9 @@ class Compute_NG(object):
                 my_x = obj._ng.meanr
             else:         
                 my_x = obj._ng.rnom
-            #second_x_axis = cs_plots.log_ticks(my_x)
-            every = 3
-            second_a_axis = my_x[::every]
+            second_x_axis = my_x
             second_x_label = rf'$\theta$ [{obj._sep_units}]'
-        
+
         for idx in (0, 1):
             x.append(my_x * cs_plots.dx(idx, nx=2, log=True))
         y = [obj._ng.xi, obj._ng.xi_im]
@@ -845,6 +843,7 @@ class Compute_NG(object):
             xlim=xlim,
             second_x_axis=second_x_axis,
             second_x_label=second_x_label,
+            second_x_every=3,
        ) 
 
     def run(self):

@@ -108,6 +108,7 @@ for mode, stack in cases:
         run_and_plot(obj, params_in, shape, ax=ax, mode=mode, stack=stack)
 
     if mosaic_plot:
+        plt.suptitle(f"coordinates={mode}, stack={stack}")
         cs_plots.savefig(f"cl_{mode}_{stack}.png")
 
 # %%

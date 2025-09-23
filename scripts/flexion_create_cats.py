@@ -52,8 +52,8 @@ sp_io.print_stats(f"Number density for all = {n_gal_aminm2:.2f} arcmin^{-2}", st
 
 # Downsample df to desired (e.g. Euclid) number density,
 # If set to -1: no downsamping
-#n_goal = 60
-n_goal = -1
+n_goal = 30
+#n_goal = -1
 
 if n_goal > 0:
     y = n_gal_aminm2 / n_goal
@@ -93,8 +93,8 @@ flexion.fill_lensing_quantities(df_Euc, flip_dec=flip_dec, c1_sign=c1_sign, c2_s
 
 # %%
 # Select density sample
-#sample = "mass_z"
-sample = "kappa"
+sample = "mass_z"
+#sample = "kappa"
 if sample == "kappa":
     n = 500
     df_fg = df.nlargest(n, 'kappa')
@@ -111,6 +111,7 @@ if sample == "mass_z":
     z_min_bg = 0.6
     
     sp_io.print_stats(f"Fg selection: {log_Mass_min} {z_min_fg} {z_max_fg}", stats_file, verbose=True)
+    sp_io.print_stats(f"Bg selection: {z_min_bg} <= z", stats_file, verbose=True)
 
     df_fg = df[(df["log_Mass"] > log_Mass_min) & df["z0"].between(z_min_fg, z_max_fg)]
     df_bg = df_Euc[df_Euc["z0"] >= z_min_bg]
