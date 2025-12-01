@@ -154,6 +154,7 @@ class Compute_NG(object):
             'key_e2': 'e2',
             'sign_e1': +1,
             'sign_e2': +1,
+            'sig_shape': -1,
             'shape': 'gamma',
             'key_z': 'z',
             'theta_min': 0.1,
@@ -174,6 +175,7 @@ class Compute_NG(object):
             'sign_e2': 'int',
             'n_theta': 'int',
             'n_cpu': 'int',
+            'sig_shape': 'float',
         }
 
         # Parameters which can be specified as command line option
@@ -191,6 +193,7 @@ class Compute_NG(object):
             'sign_e1': 'first shape multiplier (sign), default={}',
             'sign_e2': 'first shape multiplier (sign), default={}',
             'shape': 'shpe type; allowed are gamma, F, G, default={}',
+            'sig_shape': 'shape noise dispersion to add if > 0, default={}',
             'key_z': (
                 'foreground redshift column name (if scales=physical),'
                 + ' default={}'
@@ -228,6 +231,12 @@ class Compute_NG(object):
             raise ValueError(
                 'Scales (option -s) need to be angular or physical'
             )
+        stack_allowed = ('auto', 'cross', 'post')
+        if self._params['stack'] not in stack_allowed:
+                raise ValueError(
+                    f"Invalid stack method self._params['stack'], allowed are"
+                    + f"{stack_allowed}"
+                )
 
         # Set verbose to False if not given on input
         if "verbose" not in self._params:
@@ -249,16 +258,6 @@ class Compute_NG(object):
         # Test run with only 0.4M source galaxies:
         #data['bg'] = data['bg'][400_000:600_000]
 
-    def set_up_treecorr(self):
-        """Set Up Trecorr.
-
-        Set up configuration and catalogues for treecorr call(s).
-
-        """
-
-        self.set_up_treecorr_cats()
-        self.set_up_treecorr_config()
-
     def set_up_treecorr_cats(self):
         """Set Up Treecorr Cats.
 
@@ -279,17 +278,31 @@ class Compute_NG(object):
                 'Non-standard signs for ellipticity components ='
                 + f' ({params["sign_e1"]:+d}, {params["sign_e2"]:+d})'
             )
+            
+        if params["sig_shape"] > 0:
+            if params["verbose"]:
+                print(f"Adding shape noise with dispersion={params['sig_shape']}")
+            seed = 23524634632545764
+            rng = np.random.default_rng(seed)
+            n = len(self._data['bg'][params['key_e1']])
+            noise_c1 = rng.normal(loc=0.0, scale=params["sig_shape"], size=n)
+            noise_c2 = rng.normal(loc=0.0, scale=params["sig_shape"], size=n)
+        else:
+            noise_c1 = np.zeros_like(self._data['bg'][params['key_e1']])
+            noise_c2 = noise_c1
+            if params["verbose"]:
+                print(f"No shape added")
 
         # Set fg and bg sample data columns
         # shape (shear or flexion) components shape_1, shape_2:
         # Set `None` for foreground
         shape_1 = {
             'fg': None,
-            'bg': self._data['bg'][params['key_e1']] * params['sign_e1']
+            'bg': self._data['bg'][params['key_e1']] * params['sign_e1'] + noise_c1
         }
         shape_2 = {
             'fg': None,
-            'bg': self._data['bg'][params['key_e2']] * params['sign_e2']
+            'bg': self._data['bg'][params['key_e2']] * params['sign_e2'] + noise_c2
         }
         w = {}
         for sample in ['fg', 'bg']:
@@ -400,6 +413,7 @@ class Compute_NG(object):
         else:
 
             # Create individual catalogue for each object
+            # MKDEBUG Check, why idx for bg cats?
             n_obj = len(self._data[sample][key_ra])
             for idx in range(n_obj):
                 if shape_1[sample]:
@@ -546,20 +560,29 @@ class Compute_NG(object):
 
         return theta_min, theta_max
 
+    def get_XGCorrelation(self):
+        """Get XGCorrelation.
+        
+        Return treecorr cross-correlation object.
+        
+        """
+        if self._params["shape"] == "gamma":
+            xg = treecorr.NGCorrelation(self._TreeCorrConfig)
+        elif self._params["shape"] == "F":
+            xg = treecorr.NVCorrelation(self._TreeCorrConfig)
+        elif self._params["shape"] == "G":
+            xg = treecorr.NTCorrelation(self._TreeCorrConfig)
 
+        return xg
+    
     def correlate(self):
         """Correlate.
 
         Main function to compute correlations.
 
         """
-        if self._params["shape"] == "gamma":
-            self._ng = treecorr.NGCorrelation(self._TreeCorrConfig)
-        elif self._params["shape"] == "F":
-            self._ng = treecorr.NVCorrelation(self._TreeCorrConfig)
-        elif self._params["shape"] == "G":
-            self._ng = treecorr.NTCorrelation(self._TreeCorrConfig)
-
+        self._ng = self.get_XGCorrelation()
+        
         if len(self._cats['fg']) > 1:
             # Correlate n_fg times (for each fg object) and stack
             self.correlate_n_fg()
@@ -716,7 +739,6 @@ class Compute_NG(object):
 
         return TreeCorrConfig
 
-
     def _write_corr(self, ng, out_path):
         """Write Corr.
 
@@ -734,6 +756,43 @@ class Compute_NG(object):
             print(f"Writing output file {out_path}")
         ng.write(out_path, file_type=None, precision=None)
 
+    def _read_corr(self, path):
+        """Read Corr.
+        
+        Read treecorr output correlation file.
+        
+        """
+        if self._params['verbose']:
+            print(f"Reading file {path}")
+            
+        xg = self.get_XGCorrelation()
+        xg.read(path)
+
+        # For post-processing: r_nom need to be changed from default config values
+        if self._params["scales"] == "physical" and self._params["stack"] == "post":
+            
+            # Read in fits file without treecorr
+            with fits.open(path) as hdu_list:
+                data = hdu_list[1].data
+                rnom = data["r_nom"]
+
+            # Set min and max separations            
+            logr = np.log(rnom)
+            dlogr = np.diff(logr).mean()
+            min_sep = np.exp(logr[0] - dlogr / 2)
+            max_sep = np.exp(logr[-1] + dlogr / 2)
+            # Reset treecorr config
+            self._TreeCorrConfig = self.create_treecorr_config(
+                min_sep,
+                max_sep,
+                self._params['n_cpu'],
+            )
+            # Re-read correlation file
+            xg = self.get_XGCorrelation()
+            xg.read(path)
+        
+        return xg
+
     @classmethod
     def _fix_treecorr_keys(cls, path):
         """Fix Treecorr Keys.
@@ -750,6 +809,27 @@ class Compute_NG(object):
         hdu_list[1].header['COORDS'] = 'spherical'
         hdu_list[1].header['metric'] = 'Euclidean'
         hdu_list.writeto(path, overwrite=True)
+        
+    def read_correlation(self):
+        """Read Correlation.
+        
+        Read treecorr output correlation files.
+        
+        """
+        self.read_data()
+        self.set_up_treecorr_config()
+
+        self._ng = self._read_corr(self._params["out_path"])
+
+        if self._params['out_path_jk'] is not None:
+            if os.path.exists(self._params['out_path_jk']):
+                self._ng_jk = self._read_corr(self._params['out_path_jk'])
+            else:
+                if self._params["verbose"]:
+                    print(f"JK file {self._params['out_path_jk']} not found, skipping...")
+        else:
+            if self._params["verbose"]:
+                print(f"No JK file given, skipping...")
 
     def write_correlations(self):
         """Write Correlations.
@@ -771,7 +851,7 @@ class Compute_NG(object):
             self._write_corr(self._ng_jk, out_path_jk)
             self._fix_treecorr_keys(out_path_jk)
 
-    def plot_EB(self, out_base=None, ax=None, shape="gamma"):
+    def plot_EB(self, out_base=None, ax=None):
         """
         Plot EB.
         
@@ -793,41 +873,41 @@ class Compute_NG(object):
 
             if obj._params["stack"] == "cross":
                 my_x = obj._ng.meanr
-            else:         
+                second_x_axis = obj._ng.rnom
+            elif obj._params["stack"] == "post":
                 my_x = obj._ng.rnom
-            second_x_axis = my_x
+                second_x_axis = obj._ng.meanr
             second_x_label = rf'$\theta$ [{obj._sep_units}]'
 
         for idx in (0, 1):
             x.append(my_x * cs_plots.dx(idx, nx=2, log=True))
         y = [obj._ng.xi, obj._ng.xi_im]
-        dy = [np.sqrt(obj._ng.varxi)] * 2
 
+        if obj._params["stack"] == "post":
+            my_dy = np.sqrt(obj._ng_jk.varxi)
+        else:
+            my_dy = np.sqrt(obj._ng.varxi)
+        
+        dy = [my_dy] * 2
         title = out_base
         xlabel = rf'${xvar}$ [{units}]'
         
-        label = shape
-        if shape == "F":
+        label = obj._params['shape']
+        if obj._params['shape'] == "F":
             ylabel = r"1-flexion $F$ [arcsec$^{-1}$]"
-        elif shape == "G":
+        elif obj._params['shape'] == "G":
             ylabel = r"3-flexion $G$ [arcsec$^{-1}$]"
-        elif shape == "gamma":
-            label = rf"\{shape}"
+        elif obj._params['shape'] == "gamma":
+            label = rf"\{obj._params['shape']}"
             ylabel = rf"shear ${label}$"
         else:
-            ylabel = shape
+            ylabel = obj._params['shape']
 
         labels = [rf'${label}_{{\rm t}}$', rf'${label}_{{\times}}$']
         fac = 1.3
-        xlim = [
-            obj._params["theta_min"] / fac,
-            obj._params["theta_max"] * fac,
-        ]
+        xlim = [my_x[0] / fac, my_x[-1] * fac]
 
-        if out_base:
-            out_path=f"{out_base}.png",
-        else:
-            out_path = None
+        out_path = f"{out_base}.png" if out_base else None
         
         cs_plots.plot_data_1d(
             x,
@@ -840,11 +920,11 @@ class Compute_NG(object):
             xlog=True,
             out_path=out_path,
             ax=ax,
-            xlim=xlim,
             second_x_axis=second_x_axis,
             second_x_label=second_x_label,
-            second_x_every=3,
-       ) 
+            second_x_every=2,
+        ) 
+        #   xlim=xlim,
 
     def run(self):
         """Run.
@@ -859,7 +939,8 @@ class Compute_NG(object):
         self.read_data()
 
         # Set up treecorr
-        self.set_up_treecorr()
+        self.set_up_treecorr_cats()
+        self.set_up_treecorr_config()
 
         # Compute correlations and stack (if not auto)
         self.correlate()
