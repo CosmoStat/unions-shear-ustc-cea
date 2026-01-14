@@ -108,7 +108,7 @@ class ng_essentials(object):
 
         """
         # If ng_min and ng_sub are two subsequent outputs of
-        # treecorr.proess_cross, these are weighted quantities.
+        # treecorr.process_cross, these are weighted quantities.
         # This is because the cumulative processing adds
         # weighted results.
         for jdx in range(len(self.meanr)):
@@ -172,11 +172,12 @@ class ng_essentials(object):
         # Original angular x values [rad]
         x = ng.meanr
 
-        # New x values: transfer from physical [Mpc] to angular [rad]
+        # New x values: transfer from fixed, input physical [Mpc] to
+        # angular [rad]
         x_new = r / d_ang
 
-        # Re-bin to new angular coordinates and add (= stack)
-
+        # Re-bin to new (fixed, input) angular coordinates and add (= stack)
+        
         # Angular scales: individual ones were not weighted, add weight
         # back here
         self.meanr += get_interp(x_new, x, ng.meanr * ng.weight)
@@ -261,7 +262,7 @@ class ng_essentials(object):
         # Log-scales: TODO
 
 
-def ng_stack(TreeCorrConfig, all_ng, all_d_ang):
+def ng_stack(TreeCorrConfig, all_ng, all_d_ang, shape="gamma"):
     """NG Stack.
 
     Stack number-shear correlations.
@@ -284,8 +285,15 @@ def ng_stack(TreeCorrConfig, all_ng, all_d_ang):
 
     """
     # Initialise combined correlation objects
-    ng_comb = treecorr.NGCorrelation(TreeCorrConfig)
-    ng_comb_jk = treecorr.NGCorrelation(TreeCorrConfig)
+    if shape == "gamma":
+        ng_comb = treecorr.NGCorrelation(TreeCorrConfig)
+        ng_comb_jk = treecorr.NGCorrelation(TreeCorrConfig)
+    if shape == "F":
+        ng_comb = treecorr.NVCorrelation(TreeCorrConfig)
+        ng_comb_jk = treecorr.NVCorrelation(TreeCorrConfig)
+    if shape == "G":
+        ng_comb = treecorr.NTCorrelation(TreeCorrConfig)
+        ng_comb_jk = treecorr.NTCorrelation(TreeCorrConfig)
 
     n_bins = len(ng_comb.rnom)
     sep_units = ng_comb.sep_units
